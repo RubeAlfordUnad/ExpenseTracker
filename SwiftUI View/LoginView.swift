@@ -11,52 +11,126 @@ struct LoginView: View {
     
     @EnvironmentObject var auth: AuthManager
     
-    @State private var user = ""
-    @State private var pass = ""
-    @State private var error = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var isRegistering = false
+    @State private var message = ""
+    @State private var isError = false
     
     var body: some View {
-        VStack(spacing: 20) {
+        ZStack {
             
-            Spacer()
+            Color.black
+                .ignoresSafeArea()
             
-            Text("Bienvenido a Nexora")
-                .font(.largeTitle.bold())
-            
-            VStack(spacing: 15) {
-                
-                TextField("Usuario", text: $user)
-                    .textFieldStyle(.roundedBorder)
-                
-                SecureField("Contraseña", text: $pass)
-                    .textFieldStyle(.roundedBorder)
-                
-                if !error.isEmpty {
-                    Text(error)
-                        .foregroundColor(.red)
-                        .font(.caption)
-                }
-                
-                Button("Login") {
-                    if !auth.login(username: user, password: pass) {
-                        error = "Credenciales Inválidas"
+            ScrollView {
+                VStack(spacing: 30) {
+                    
+                    Spacer(minLength: 60)
+                    
+                    VStack(spacing: 15) {
+                        
+                        ZStack {
+                            Circle()
+                                .fill(Color.green.opacity(0.2))
+                                .frame(width: 110, height: 110)
+                            
+                            Image(systemName: "chart.line.uptrend.xyaxis")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 50, height: 50)
+                                .foregroundColor(.green)
+                        }
+                        
+                        Text("Expense Tracker")
+                            .font(.largeTitle)
+                            .bold()
+                            .foregroundColor(.white)
+                        
+                        Text("Control inteligente de finanzas")
+                            .font(.subheadline)
+                            .foregroundColor(.yellow)
                     }
+                    
+                    VStack(spacing: 20) {
+                        
+                        Text(isRegistering ? "Crear Cuenta" : "Iniciar Sesión")
+                            .font(.title2)
+                            .bold()
+                        
+                        TextField("Usuario", text: $username)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(10)
+                        
+                        SecureField("Contraseña", text: $password)
+                            .padding()
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(10)
+                        
+                        Button(action: handleAction) {
+                            Text(isRegistering ? "Registrarse" : "Ingresar")
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green)
+                                .foregroundColor(.black)
+                                .cornerRadius(10)
+                        }
+                        
+                        Button(isRegistering ? "Ya tengo cuenta" : "Crear cuenta") {
+                            isRegistering.toggle()
+                            message = ""
+                        }
+                        .foregroundColor(.yellow)
+                        .font(.footnote)
+                        
+                        if !message.isEmpty {
+                            Text(message)
+                                .foregroundColor(isError ? .red : .green)
+                                .font(.footnote)
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .padding()
+                    .background(Color.white)
+                    .cornerRadius(20)
+                    .padding(.horizontal)
+                    
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color.blue)
-                .foregroundColor(.white)
-                .cornerRadius(12)
             }
-            .padding()
-            
-            Spacer()
-            
-            Text("© 2026 Ruben Alford. All rights reserved.")
-                .font(.footnote)
-                .foregroundColor(.gray)
-                .padding(.bottom, 10)
         }
-        .padding()
+    }
+    
+    func handleAction() {
+        
+        if isRegistering {
+            
+            let result = auth.register(username: username, password: password)
+            
+            if result == "success" {
+                isError = false
+                message = "Cuenta creada exitosamente 🎉"
+                
+                // Login automático después de registro
+                _ = auth.login(username: username, password: password)
+                
+            } else {
+                isError = true
+                message = result
+            }
+            
+        } else {
+            
+            let result = auth.login(username: username, password: password)
+            
+            if result == "success" {
+                isError = false
+                message = ""
+            } else {
+                isError = true
+                message = result
+            }
+        }
     }
 }
