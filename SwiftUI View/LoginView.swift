@@ -42,7 +42,7 @@ struct LoginView: View {
                                 .foregroundColor(.green)
                         }
                         
-                        Text("Expense Tracker")
+                        Text("Nexora")
                             .font(.largeTitle)
                             .bold()
                             .foregroundColor(.white)
@@ -57,16 +57,20 @@ struct LoginView: View {
                         Text(isRegistering ? "Crear Cuenta" : "Iniciar Sesión")
                             .font(.title2)
                             .bold()
-                        
+                        // Campo contraseña
                         TextField("Usuario", text: $username)
                             .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(10)
+                            .background(Color(.systemGray6)) // gris muy claro
+                            .foregroundColor(.white) // TEXTO blanco
+                            .cornerRadius(12)
+                            .autocapitalization(.none)
                         
+                        // Campo Contraseña
                         SecureField("Contraseña", text: $password)
                             .padding()
-                            .background(Color.gray.opacity(0.1))
-                            .cornerRadius(10)
+                            .background(Color(.systemGray6))
+                            .foregroundColor(.white) // TEXTO Blanco
+                            .cornerRadius(12)
                         
                         Button(action: handleAction) {
                             Text(isRegistering ? "Registrarse" : "Ingresar")
@@ -92,7 +96,7 @@ struct LoginView: View {
                         }
                     }
                     .padding()
-                    .background(Color.white)
+                    .background(Color.white.opacity(0.2))
                     .cornerRadius(20)
                     .padding(.horizontal)
                     
