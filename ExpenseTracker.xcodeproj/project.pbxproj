@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		8FA2AC8C2F579325007404F5 /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = 8FA2AC8B2F57931C007404F5 /* .gitignore */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		8FD3D2462F510C73009DD09D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -28,26 +24,47 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		8FA2AC8B2F57931C007404F5 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 		8FD3D2382F510C70009DD09D /* ExpenseTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ExpenseTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		8FD3D2452F510C73009DD09D /* ExpenseTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ExpenseTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8FD3D24F2F510C73009DD09D /* ExpenseTrackerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ExpenseTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		8F48855F2F5A30B000EA2105 /* Exceptions for "ExpenseTrackerUITests" folder in "ExpenseTracker" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				.gitignore,
+			);
+			target = 8FD3D2372F510C70009DD09D /* ExpenseTracker */;
+		};
+		8F4885602F5A30B000EA2105 /* Exceptions for "ExpenseTrackerUITests" folder in "ExpenseTrackerUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				.gitignore,
+			);
+			target = 8FD3D24E2F510C73009DD09D /* ExpenseTrackerUITests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		8F48855E2F5A309800EA2105 /* App */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = App;
+			sourceTree = "<group>";
+		};
+		8F4885612F5A30CA00EA2105 /* Core */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Core;
+			sourceTree = "<group>";
+		};
+		8F48856C2F5A329C00EA2105 /* Features */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Features;
+			sourceTree = "<group>";
+		};
 		8F9B98382F51652000DF19A8 /* SwiftUI View */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "SwiftUI View";
-			sourceTree = "<group>";
-		};
-		8FBF3CF12F55913D00FADE21 /* Managers */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Managers;
-			sourceTree = "<group>";
-		};
-		8FBF3CF22F55915600FADE21 /* Models */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Models;
 			sourceTree = "<group>";
 		};
 		8FD3D23A2F510C70009DD09D /* ExpenseTracker */ = {
@@ -62,6 +79,10 @@
 		};
 		8FD3D2522F510C73009DD09D /* ExpenseTrackerUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				8F48855F2F5A30B000EA2105 /* Exceptions for "ExpenseTrackerUITests" folder in "ExpenseTracker" target */,
+				8F4885602F5A30B000EA2105 /* Exceptions for "ExpenseTrackerUITests" folder in "ExpenseTrackerUITests" target */,
+			);
 			path = ExpenseTrackerUITests;
 			sourceTree = "<group>";
 		};
@@ -95,9 +116,9 @@
 		8FD3D22F2F510C70009DD09D = {
 			isa = PBXGroup;
 			children = (
-				8FA2AC8B2F57931C007404F5 /* .gitignore */,
-				8FBF3CF22F55915600FADE21 /* Models */,
-				8FBF3CF12F55913D00FADE21 /* Managers */,
+				8F48856C2F5A329C00EA2105 /* Features */,
+				8F4885612F5A30CA00EA2105 /* Core */,
+				8F48855E2F5A309800EA2105 /* App */,
 				8F9B98382F51652000DF19A8 /* SwiftUI View */,
 				8FD3D23A2F510C70009DD09D /* ExpenseTracker */,
 				8FD3D2482F510C73009DD09D /* ExpenseTrackerTests */,
@@ -132,9 +153,10 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				8F48855E2F5A309800EA2105 /* App */,
+				8F4885612F5A30CA00EA2105 /* Core */,
+				8F48856C2F5A329C00EA2105 /* Features */,
 				8F9B98382F51652000DF19A8 /* SwiftUI View */,
-				8FBF3CF12F55913D00FADE21 /* Managers */,
-				8FBF3CF22F55915600FADE21 /* Models */,
 				8FD3D23A2F510C70009DD09D /* ExpenseTracker */,
 			);
 			name = ExpenseTracker;
@@ -239,7 +261,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				8FA2AC8C2F579325007404F5 /* .gitignore in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
