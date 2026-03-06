@@ -10,17 +10,12 @@ import SwiftUI
 @main
 struct ExpenseTrackerApp: App {
     
-    @StateObject var auth = AuthManager()
+    @StateObject private var auth = AuthManager()
     
     var body: some Scene {
         WindowGroup {
-            if auth.isLoggedIn {
-                ContentView()
-                    .environmentObject(auth)
-            } else {
-                LoginView()
-                    .environmentObject(auth)
-            }
+            RootView()
+                .environmentObject(auth)
         }
     }
 }

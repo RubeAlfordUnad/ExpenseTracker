@@ -8,96 +8,72 @@
 import Foundation
 import Combine
 
+struct User: Codable {
+    let username: String
+    let password: String
+}
+
 class AuthManager: ObservableObject {
     
-    // Estado de sesión
-    @Published var isLoggedIn: Bool {
-        didSet {
-            UserDefaults.standard.set(isLoggedIn, forKey: "isLoggedIn")
-        }
-    }
+    @Published var isLoggedIn = false
+    @Published var currentUser: String = ""
     
-    // Usuario actual
-    @Published var currentUser: String?
+    private let usersKey = "users_key"
+    private let sessionKey = "session_key"
     
     init() {
-        self.isLoggedIn = UserDefaults.standard.bool(forKey: "isLoggedIn")
-        self.currentUser = UserDefaults.standard.string(forKey: "currentUser")
+        loadSession()
     }
     
-    // MARK: - Registro
-    
-    func register(username: String, password: String) -> String {
-        
-        // Validaciones
-        if username.trimmingCharacters(in: .whitespaces).isEmpty ||
-            password.trimmingCharacters(in: .whitespaces).isEmpty {
-            return "No puede haber campos vacíos"
-        }
-        
-        if username.count < 4 {
-            return "El usuario debe tener mínimo 4 caracteres"
-        }
-        
-        if password.count < 4 {
-            return "La contraseña debe tener mínimo 4 caracteres"
-        }
-        
-        // Cargar usuarios guardados
+    func register(username: String, password: String) -> Bool {
         var users = loadUsers()
         
-        if users[username] != nil {
-            return "Ese usuario ya existe"
+        if users.contains(where: { $0.username == username }) {
+            return false
         }
         
-        // Guardar nuevo usuario
-        users[username] = password
+        users.append(User(username: username, password: password))
         saveUsers(users)
-        
-        return "success"
+        return true
     }
     
-    // MARK: - Login
-    
-    func login(username: String, password: String) -> String {
-        
+    func login(username: String, password: String) -> Bool {
         let users = loadUsers()
         
-        if users.isEmpty {
-            return "No hay usuarios registrados"
+        if users.contains(where: { $0.username == username && $0.password == password }) {
+            currentUser = username
+            isLoggedIn = true
+            UserDefaults.standard.set(username, forKey: sessionKey)
+            return true
         }
         
-        guard let savedPassword = users[username] else {
-            return "Usuario no encontrado"
-        }
-        
-        if savedPassword != password {
-            return "Contraseña incorrecta"
-        }
-        
-        // Login exitoso
-        currentUser = username
-        isLoggedIn = true
-        UserDefaults.standard.set(username, forKey: "currentUser")
-        
-        return "success"
+        return false
     }
-    
-    // MARK: - Logout
     
     func logout() {
+        currentUser = ""
         isLoggedIn = false
-        currentUser = nil
-        UserDefaults.standard.removeObject(forKey: "currentUser")
+        UserDefaults.standard.removeObject(forKey: sessionKey)
     }
     
-    // MARK: - Persistencia
-    
-    private func loadUsers() -> [String: String] {
-        return UserDefaults.standard.dictionary(forKey: "users") as? [String: String] ?? [:]
+    private func loadUsers() -> [User] {
+        guard let data = UserDefaults.standard.data(forKey: usersKey),
+              let decoded = try? JSONDecoder().decode([User].self, from: data)
+        else { return [] }
+        
+        return decoded
     }
     
-    private func saveUsers(_ users: [String: String]) {
-        UserDefaults.standard.set(users, forKey: "users")
+    private func saveUsers(_ users: [User]) {
+        if let encoded = try? JSONEncoder().encode(users) {
+            UserDefaults.standard.set(encoded, forKey: usersKey)
+        }
+    }
+    
+    private func loadSession() {
+        if let savedUser = UserDefaults.standard.string(forKey: sessionKey) {
+            currentUser = savedUser
+            isLoggedIn = true
+        }
     }
 }

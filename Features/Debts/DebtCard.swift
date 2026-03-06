@@ -12,46 +12,86 @@ struct DebtCard: View {
     @Binding var debt: Debt
     @State private var showPayment = false
     
-    var progress: Double {
-        if debt.totalAmount == 0 { return 0 }
-        return 1 - (debt.remainingAmount / debt.totalAmount)
+    var usageProgress: Double {
+        guard debt.totalLimit > 0 else { return 0 }
+        return debt.remainingDebt / debt.totalLimit
     }
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             
             HStack {
-                Text(debt.name)
-                    .font(.headline)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(debt.cardName)
+                        .font(.headline)
+                        .foregroundColor(.white)
+                    
+                    Text(debt.brand.rawValue)
+                        .font(.caption)
+                        .foregroundColor(.white.opacity(0.8))
+                }
                 
                 Spacer()
                 
-                Text("$\(debt.remainingAmount, specifier: "%.2f")")
-                    .fontWeight(.bold)
+                if debt.brand == .visa || debt.brand == .mastercard || debt.brand == .amex {
+                    Text(debt.brand.rawValue.uppercased())
+                        .font(.caption.bold())
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.white.opacity(0.15))
+                        .cornerRadius(8)
+                } else {
+                    Image(systemName: "creditcard.fill")
+                        .foregroundColor(.white)
+                }
             }
             
-            ProgressView(value: progress)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Saldo pendiente")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+                
+                Text("$\(debt.remainingDebt, specifier: "%.2f")")
+                    .font(.title2.bold())
+                    .foregroundColor(.white)
+            }
             
-            Text("Total: $\(debt.totalAmount, specifier: "%.2f")")
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: usageProgress)
+                    .tint(.white)
+                
+                HStack {
+                    Text("Cupo: $\(debt.totalLimit, specifier: "%.2f")")
+                    Spacer()
+                    Text("\(Int(usageProgress * 100))% usado")
+                }
                 .font(.caption)
-                .foregroundColor(.gray)
+                .foregroundColor(.white.opacity(0.85))
+            }
             
             Button {
                 showPayment = true
             } label: {
-                Text("Register Payment")
-                    .font(.subheadline)
+                Text("Registrar pago")
+                    .font(.subheadline.bold())
                     .frame(maxWidth: .infinity)
-                    .padding(8)
-                    .background(Color.blue.opacity(0.15))
-                    .cornerRadius(10)
+                    .padding(.vertical, 10)
+                    .background(Color.white)
+                    .foregroundColor(.black)
+                    .cornerRadius(12)
             }
         }
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.systemGray6))
+            LinearGradient(
+                colors: [Color.black, Color.gray.opacity(0.85)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         )
+        .cornerRadius(22)
+        .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 5)
         .sheet(isPresented: $showPayment) {
             AddPaymentView(debt: $debt)
         }

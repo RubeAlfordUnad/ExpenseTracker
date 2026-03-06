@@ -15,33 +15,28 @@ struct AddPaymentView: View {
     @State private var payment = ""
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
-                Text("Remaining: $\(debt.remainingAmount, specifier: "%.2f")")
+                Text("Saldo pendiente: $\(debt.remainingDebt, specifier: "%.2f")")
                     .fontWeight(.semibold)
                 
-                TextField("Payment Amount", text: $payment)
+                TextField("Monto del pago", text: $payment)
                     .keyboardType(.decimalPad)
             }
-            .navigationTitle("Make Payment")
+            .navigationTitle("Registrar pago")
             .toolbar {
-                
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") {
-                        let value = Double(payment) ?? 0
-                        
-                        debt.remainingAmount -= value
-                        
-                        if debt.remainingAmount < 0 {
-                            debt.remainingAmount = 0
-                        }
-                        
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancelar") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Aplicar") {
+                        let value = Double(payment) ?? 0
+                        debt.remainingDebt = max(debt.remainingDebt - value, 0)
+                        dismiss()
+                    }
                 }
             }
         }

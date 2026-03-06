@@ -62,11 +62,6 @@
 			path = Features;
 			sourceTree = "<group>";
 		};
-		8F9B98382F51652000DF19A8 /* SwiftUI View */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = "SwiftUI View";
-			sourceTree = "<group>";
-		};
 		8FD3D23A2F510C70009DD09D /* ExpenseTracker */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = ExpenseTracker;
@@ -119,7 +114,6 @@
 				8F48856C2F5A329C00EA2105 /* Features */,
 				8F4885612F5A30CA00EA2105 /* Core */,
 				8F48855E2F5A309800EA2105 /* App */,
-				8F9B98382F51652000DF19A8 /* SwiftUI View */,
 				8FD3D23A2F510C70009DD09D /* ExpenseTracker */,
 				8FD3D2482F510C73009DD09D /* ExpenseTrackerTests */,
 				8FD3D2522F510C73009DD09D /* ExpenseTrackerUITests */,
@@ -156,7 +150,6 @@
 				8F48855E2F5A309800EA2105 /* App */,
 				8F4885612F5A30CA00EA2105 /* Core */,
 				8F48856C2F5A329C00EA2105 /* Features */,
-				8F9B98382F51652000DF19A8 /* SwiftUI View */,
 				8FD3D23A2F510C70009DD09D /* ExpenseTracker */,
 			);
 			name = ExpenseTracker;

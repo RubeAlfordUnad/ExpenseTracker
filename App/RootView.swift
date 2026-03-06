@@ -12,10 +12,12 @@ struct RootView: View {
     @EnvironmentObject var auth: AuthManager
     
     var body: some View {
-        if auth.isLoggedIn {
-            ContentView()
-        } else {
-            LoginView()
+        Group {
+            if auth.isLoggedIn {
+                MainTabView()
+            } else {
+                LoginView()
+            }
         }
     }
 }

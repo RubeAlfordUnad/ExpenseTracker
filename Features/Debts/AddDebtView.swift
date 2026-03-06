@@ -11,38 +11,51 @@ struct AddDebtView: View {
     
     @Environment(\.dismiss) var dismiss
     
-    @State private var name = ""
-    @State private var total = ""
+    @State private var cardName = ""
+    @State private var selectedBrand: CardBrand = .visa
+    @State private var totalLimit = ""
+    @State private var currentDebt = ""
     
     var onSave: (Debt) -> Void
     
     var body: some View {
-        NavigationView {
+        NavigationStack {
             Form {
-                TextField("Card / Loan Name", text: $name)
+                TextField("Nombre de la tarjeta", text: $cardName)
                 
-                TextField("Total Amount", text: $total)
+                Picker("Marca", selection: $selectedBrand) {
+                    ForEach(CardBrand.allCases, id: \.self) { brand in
+                        Text(brand.rawValue)
+                    }
+                }
+                
+                TextField("Cupo total", text: $totalLimit)
+                    .keyboardType(.decimalPad)
+                
+                TextField("Deuda actual", text: $currentDebt)
                     .keyboardType(.decimalPad)
             }
-            .navigationTitle("Add Debt")
+            .navigationTitle("Nueva tarjeta")
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let totalValue = Double(total) ?? 0
-                        
-                        let debt = Debt(
-                            name: name,
-                            totalAmount: totalValue,
-                            remainingAmount: totalValue
-                        )
-                        
-                        onSave(debt)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancelar") {
                         dismiss()
                     }
                 }
                 
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Guardar") {
+                        let newDebt = Debt(
+                            cardName: cardName,
+                            brand: selectedBrand,
+                            totalLimit: Double(totalLimit) ?? 0,
+                            remainingDebt: Double(currentDebt) ?? 0
+                        )
+                        
+                        onSave(newDebt)
+                        dismiss()
+                    }
+                    .disabled(cardName.isEmpty || totalLimit.isEmpty || currentDebt.isEmpty)
                 }
             }
         }
