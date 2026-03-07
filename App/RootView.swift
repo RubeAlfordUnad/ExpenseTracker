@@ -8,15 +8,15 @@
 import SwiftUI
 
 struct RootView: View {
-    
-    @AppStorage("hasSeenOnboarding") var hasSeenOnboarding = false
-    
+
+    @EnvironmentObject var auth: AuthManager
+
     var body: some View {
-        
-        if hasSeenOnboarding {
-            LoginView()
+
+        if auth.isLoggedIn {
+            MainTabView()
         } else {
-            OnboardingView()
+            LoginView()
         }
     }
 }
