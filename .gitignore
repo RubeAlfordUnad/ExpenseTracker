@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Xcode local/user data
+xcuserdata/
+*.xcuserstate
+*.pbxuser
+*.xcscmblueprint
+
+# build artifacts
+DerivedData/
+.build/
+
+# local backups
+*.bak
