@@ -41,7 +41,7 @@ struct YearlyTrendChartCard: View {
 
                 Spacer()
 
-                Text(settings.formatCurrency(annualTotal, decimals: 0))
+                Text(settings.secureCurrency(annualTotal, decimals: 0))
                     .font(.subheadline.bold())
             }
 
@@ -66,8 +66,8 @@ struct YearlyTrendChartCard: View {
 
                     Text(
                         settings.language == .spanish
-                        ? "Mes más alto: \(peakPoint.label) con \(settings.formatCurrency(peakPoint.total, decimals: 0))"
-                        : "Highest month: \(peakPoint.label) with \(settings.formatCurrency(peakPoint.total, decimals: 0))"
+                        ? "Mes más alto: \(peakPoint.label) con \(settings.secureCurrency(peakPoint.total, decimals: 0))"
+                        : "Highest month: \(peakPoint.label) with \(settings.secureCurrency(peakPoint.total, decimals: 0))"
                     )
                     .font(.subheadline)
                     .foregroundColor(.secondary)

@@ -495,8 +495,8 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "banknote",
                         text: settings.language == .spanish
-                        ? "Año: \(settings.formatCurrency(selectedYearTotal, decimals: 0))"
-                        : "Year: \(settings.formatCurrency(selectedYearTotal, decimals: 0))"
+                        ? "Año: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
+                        : "Year: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
                     )
                 }
 
@@ -516,8 +516,8 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "banknote",
                         text: settings.language == .spanish
-                        ? "Año: \(settings.formatCurrency(selectedYearTotal, decimals: 0))"
-                        : "Year: \(settings.formatCurrency(selectedYearTotal, decimals: 0))"
+                        ? "Año: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
+                        : "Year: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
                     )
                 }
             }
@@ -726,7 +726,7 @@ struct ExpenseHistoryView: View {
 
                 summaryCard(
                     title: settings.language == .spanish ? "Total filtrado" : "Filtered total",
-                    value: settings.formatCurrency(filteredLedgerTotal, decimals: 0),
+                    value: settings.secureCurrency(filteredLedgerTotal, decimals: 0),
                     accent: .purple
                 )
             }
@@ -752,13 +752,13 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Total del mes" : "Month total",
-                    value: settings.formatCurrency(selectedMonthTotal, decimals: 0),
+                    value: settings.secureCurrency(selectedMonthTotal, decimals: 0),
                     accent: .blue
                 )
 
                 summaryCard(
                     title: settings.language == .spanish ? "Pagado en el año" : "Paid this year",
-                    value: settings.formatCurrency(selectedYearTotal, decimals: 0),
+                    value: settings.secureCurrency(selectedYearTotal, decimals: 0),
                     accent: .purple
                 )
             }
@@ -766,7 +766,7 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Promedio del mes" : "Month average",
-                    value: settings.formatCurrency(selectedMonthAverage, decimals: 0),
+                    value: settings.secureCurrency(selectedMonthAverage, decimals: 0),
                     accent: .pink
                 )
 
@@ -803,7 +803,7 @@ struct ExpenseHistoryView: View {
 
                     Spacer()
 
-                    Text(settings.formatCurrency(previousMonthTotal, decimals: 0))
+                    Text(settings.secureCurrency(previousMonthTotal, decimals: 0))
                         .font(.caption.bold())
                         .foregroundColor(.secondary)
                 }
@@ -980,7 +980,7 @@ struct ExpenseHistoryView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(settings.formatCurrency(expense.amount, decimals: 0))
+                Text(settings.secureCurrency(expense.amount, decimals: 0))
                     .font(.subheadline.bold())
 
                 Text(expense.date.formatted(date: .abbreviated, time: .omitted))

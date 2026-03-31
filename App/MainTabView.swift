@@ -1,11 +1,11 @@
 import SwiftUI
 import PhotosUI
-import UIKit
 
 struct MainTabView: View {
 
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var settings: AppSettings
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var expenses: [Expense] = []
     @State private var incomes: [Income] = []
@@ -30,8 +30,12 @@ struct MainTabView: View {
     @State private var hasLoadedInitialData = false
     @State private var hasShownInsightThisSession = false
 
+    @State private var showLockOverlay = false
+    @State private var isAuthenticatingLock = false
+
     private let profileImageChangedNotification = Notification.Name("profileImageDidChange")
     private let notificationPreferencesDidChange = Notification.Name("notificationPreferencesDidChange")
+    private let backupRestoreDidComplete = Notification.Name("backupRestoreDidComplete")
 
     private var currentMonthExpenses: [Expense] {
         let calendar = Calendar.current
@@ -45,85 +49,26 @@ struct MainTabView: View {
         }
     }
 
-    private var currentMonthIncomes: [Income] {
-        let calendar = Calendar.current
-        let now = Date()
-        let currentMonth = calendar.component(.month, from: now)
-        let currentYear = calendar.component(.year, from: now)
-
-        return incomes.filter {
-            calendar.component(.month, from: $0.date) == currentMonth &&
-            calendar.component(.year, from: $0.date) == currentYear
-        }
-    }
-
-    private var totalSpent: Double {
-        currentMonthExpenses.reduce(0) { $0 + $1.amount }
-    }
-
-    private var totalIncome: Double {
-        currentMonthIncomes.reduce(0) { $0 + $1.amount }
-    }
-
-    private var netBalance: Double {
-        totalIncome - totalSpent
-    }
-
-    private var remainingBudget: Double {
-        monthlyBudget.amount - totalSpent
-    }
-
-    private var budgetProgress: Double {
-        guard monthlyBudget.amount > 0 else { return 0 }
-        return totalSpent / monthlyBudget.amount
-    }
-
-    private var safeBudgetProgress: Double {
-        guard budgetProgress.isFinite else { return 0 }
-        return min(max(budgetProgress, 0), 1)
-    }
-
-    private var recentExpenses: [Expense] {
-        Array(
-            currentMonthExpenses
-                .sorted { $0.date > $1.date }
-                .prefix(5)
-        )
-    }
-
-    private var groupedByCategory: [Category: Double] {
-        Dictionary(grouping: currentMonthExpenses, by: { $0.category })
-            .mapValues { group in
-                group.reduce(0) { $0 + $1.amount }
-            }
-    }
-
-    private var topCategory: Category? {
-        groupedByCategory.max { $0.value < $1.value }?.key
-    }
-
     var body: some View {
         ZStack {
             TabView {
                 NavigationStack {
-                    ScrollView(showsIndicators: false) {
-                        VStack(alignment: .leading, spacing: 18) {
-                            headerSection
-                            monthlyOverviewCard
-                            progressSection
-
-                            if let topCategory {
-                                topCategorySection(topCategory)
-                            }
-
-                            recentExpensesSection
-                            quickActionsSection
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.top, 8)
-                        .padding(.bottom, 32)
-                    }
-                    .background(Color(.systemBackground))
+                    DashboardView(
+                        expenses: $expenses,
+                        incomes: $incomes,
+                        monthlyBudget: $monthlyBudget,
+                        selectedPhotoItem: $selectedPhotoItem,
+                        profileImageData: $profileImageData,
+                        showAddExpense: $showAddExpense,
+                        showAddIncome: $showAddIncome,
+                        onReloadHomeData: reloadHomeData,
+                        onPersistExpenses: persistExpenses,
+                        onRequestBudgetEdit: openBudgetEditor,
+                        onRefreshInsight: refreshInsight,
+                        onEvaluateBudgetNotifications: evaluateBudgetNotifications
+                    )
+                    .environmentObject(auth)
+                    .environmentObject(settings)
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
@@ -156,7 +101,7 @@ struct MainTabView: View {
                     .sheet(isPresented: $showAddExpense) {
                         AddExpenseView { newExpense in
                             expenses.append(newExpense)
-                            DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
+                            persistExpenses()
                             refreshInsight()
                             evaluateBudgetNotifications()
                         }
@@ -165,7 +110,7 @@ struct MainTabView: View {
                     .sheet(isPresented: $showAddIncome) {
                         AddIncomeView { newIncome in
                             incomes.append(newIncome)
-                            DataManager.shared.saveIncomes(incomes, user: auth.currentUser)
+                            persistIncomes()
                         }
                         .environmentObject(settings)
                     }
@@ -195,12 +140,20 @@ struct MainTabView: View {
                         guard !hasLoadedInitialData else { return }
                         hasLoadedInitialData = true
                         presentInsightIfNeeded()
+
+                        if settings.biometricLockEnabled {
+                            showLockOverlay = true
+                            Task { await unlockAppIfNeeded() }
+                        }
                     }
                     .onReceive(NotificationCenter.default.publisher(for: profileImageChangedNotification)) { _ in
                         profileImageData = DataManager.shared.loadProfileImageData(user: auth.currentUser)
                     }
                     .onReceive(NotificationCenter.default.publisher(for: notificationPreferencesDidChange)) { _ in
                         evaluateBudgetNotifications()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: backupRestoreDidComplete)) { _ in
+                        reloadHomeData()
                     }
                     .onChange(of: selectedPhotoItem) { _, newItem in
                         Task {
@@ -212,10 +165,18 @@ struct MainTabView: View {
                     Label(homeTabTitle, systemImage: "house")
                 }
 
-                IncomesView()
-                    .tabItem {
-                        Label(incomesTabTitle, systemImage: "arrow.down.circle")
-                    }
+                NavigationStack {
+                    IncomesView(
+                        incomes: $incomes,
+                        onPersist: {
+                            persistIncomes()
+                        }
+                    )
+                    .environmentObject(settings)
+                }
+                .tabItem {
+                    Label(incomesTabTitle, systemImage: "arrow.down.circle")
+                }
 
                 DebtsView()
                     .tabItem {
@@ -227,6 +188,20 @@ struct MainTabView: View {
                         Label(settings.t("tab.recurring"), systemImage: "calendar.badge.clock")
                     }
             }
+            .blur(radius: showLockOverlay ? 10 : 0)
+            .disabled(showLockOverlay)
+            .allowsHitTesting(!showLockOverlay)
+            .onChange(of: scenePhase) { _, newPhase in
+                handleScenePhaseChange(newPhase)
+            }
+            .onChange(of: settings.biometricLockEnabled) { _, enabled in
+                if enabled {
+                    showLockOverlay = true
+                    Task { await unlockAppIfNeeded() }
+                } else {
+                    showLockOverlay = false
+                }
+            }
 
             if showInsight, let insight = currentInsight {
                 InsightPopupView(
@@ -236,315 +211,56 @@ struct MainTabView: View {
                 .transition(.scale)
                 .zIndex(2)
             }
-        }
-    }
 
-    private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(greetingText)
-                        .font(.caption.bold())
-                        .foregroundColor(BrandPalette.primary)
-
-                    Text(homeScreenTitle)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.82)
-
-                    Text(headerSubtitle)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
-
-                avatarPickerButton
-                    .padding(.top, 4)
-            }
-
-            ViewThatFits {
-                HStack(spacing: 8) {
-                    headerInfoPill(
-                        icon: "calendar",
-                        text: currentMonthLabel
-                    )
-
-                    headerInfoPill(
-                        icon: "list.bullet",
-                        text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count)
-                    )
-
-                    headerInfoPill(
-                        icon: "arrow.down.circle",
-                        text: incomeCountText
-                    )
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    headerInfoPill(
-                        icon: "calendar",
-                        text: currentMonthLabel
-                    )
-
-                    headerInfoPill(
-                        icon: "list.bullet",
-                        text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count)
-                    )
-
-                    headerInfoPill(
-                        icon: "arrow.down.circle",
-                        text: incomeCountText
-                    )
-                }
-            }
-        }
-        .padding(18)
-        .background(BrandPalette.heroGradient)
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(BrandPalette.stroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    private var monthlyOverviewCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(settings.t("main.monthlySummary"))
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-
-                    Text(settings.formatCurrency(netBalance))
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(netBalanceColor)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-
-                    Text(
-                        settings.language == .spanish
-                        ? "Tu balance neto del mes se calcula con ingresos menos gastos."
-                        : "Your monthly net balance is calculated as income minus expenses."
-                    )
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                Button {
-                    budgetInput = String(Int(monthlyBudget.amount))
-                    showBudgetEditAlert = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.headline)
-                        .foregroundColor(BrandPalette.primary)
-                        .frame(width: 42, height: 42)
-                        .background(BrandPalette.surfaceRaised)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-
-            HStack(spacing: 12) {
-                budgetStatItem(
-                    title: totalIncomeTitle,
-                    value: settings.formatCurrency(totalIncome),
-                    valueColor: .green
-                )
-
-                budgetStatItem(
-                    title: settings.t("main.totalSpent"),
-                    value: settings.formatCurrency(totalSpent),
-                    valueColor: .red
-                )
-            }
-
-            HStack(spacing: 12) {
-                budgetStatItem(
-                    title: netBalanceTitle,
-                    value: settings.formatCurrency(netBalance),
-                    valueColor: netBalanceColor
-                )
-
-                budgetStatItem(
-                    title: budgetLeftTitle,
-                    value: monthlyBudget.amount > 0 ? settings.formatCurrency(remainingBudget) : budgetNotSetText,
-                    valueColor: monthlyBudget.amount > 0
-                    ? (remainingBudget < 0 ? .red : BrandPalette.primary)
-                    : .secondary
-                )
-            }
-        }
-        .padding(20)
-        .background(
-            LinearGradient(
-                colors: [
-                    BrandPalette.surface,
-                    BrandPalette.primary.opacity(0.06),
-                    BrandPalette.secondary.opacity(0.04)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(BrandPalette.stroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    private var progressSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(settings.t("main.progressTitle"))
-                    .font(.headline)
-
-                Spacer()
-
-                Text("\(Int((safeBudgetProgress * 100).rounded()))%")
-                    .font(.subheadline.bold())
-                    .foregroundColor(progressTintColor)
-            }
-
-            ProgressView(value: safeBudgetProgress)
-                .tint(progressTintColor)
-                .scaleEffect(x: 1, y: 1.6, anchor: .center)
-
-            if monthlyBudget.amount <= 0 {
-                Text(settings.t("main.progressHintSetBudget"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else if remainingBudget >= 0 {
-                Text(settings.tr("main.progressRemaining", settings.formatCurrency(remainingBudget)))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            } else {
-                Text(settings.tr("main.progressExceeded", settings.formatCurrency(abs(remainingBudget))))
-                    .font(.caption.bold())
-                    .foregroundColor(.red)
-            }
-        }
-        .padding(18)
-        .background(BrandPalette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func topCategorySection(_ category: Category) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(category.color.opacity(0.18))
-                    .frame(width: 54, height: 54)
-
-                Image(systemName: category.icon)
-                    .font(.title3)
-                    .foregroundColor(category.color)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(settings.t("main.topCategory"))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                Text(category.displayName(language: settings.language))
-                    .font(.headline)
-            }
-
-            Spacer()
-
-            if let amount = groupedByCategory[category] {
-                Text(settings.formatCurrency(amount))
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-        }
-        .padding(18)
-        .background(BrandPalette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private var recentExpensesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(settings.t("main.recentExpenses"))
-                .font(.headline)
-
-            if recentExpenses.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(settings.t("main.noExpensesTitle"))
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-
-                    Text(settings.t("main.noExpensesSubtitle"))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(BrandPalette.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(recentExpenses) { expense in
-                        recentExpenseRow(expense)
+            if showLockOverlay {
+                AppLockOverlayView(
+                    isAuthenticating: isAuthenticatingLock,
+                    onUnlock: {
+                        Task { await unlockAppIfNeeded() }
                     }
-                }
+                )
+                .environmentObject(settings)
+                .transition(.opacity)
+                .zIndex(3)
             }
+        }
+        .animation(.easeInOut(duration: 0.2), value: showLockOverlay)
+    }
+
+    private func handleScenePhaseChange(_ newPhase: ScenePhase) {
+        switch newPhase {
+        case .background:
+            if settings.biometricLockEnabled {
+                showLockOverlay = true
+            }
+        case .active:
+            if settings.biometricLockEnabled, showLockOverlay {
+                Task { await unlockAppIfNeeded() }
+            }
+        default:
+            break
         }
     }
 
-    private var quickActionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(settings.t("main.quickActions"))
-                .font(.headline)
-
-            VStack(spacing: 10) {
-                NavigationLink {
-                    ExpenseHistoryView(
-                        expenses: $expenses,
-                        onPersist: {
-                            DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
-                            refreshInsight()
-                            evaluateBudgetNotifications()
-                        }
-                    )
-                    .environmentObject(settings)
-                } label: {
-                    quickActionCard(
-                        icon: "calendar",
-                        title: settings.t("main.historyTitle"),
-                        subtitle: settings.t("main.historySubtitle")
-                    )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    showAddIncome = true
-                } label: {
-                    quickActionCard(
-                        icon: "arrow.down.circle",
-                        title: addIncomeQuickActionTitle,
-                        subtitle: addIncomeQuickActionSubtitle
-                    )
-                }
-                .buttonStyle(.plain)
-
-                NavigationLink {
-                    SettingsView()
-                } label: {
-                    quickActionCard(
-                        icon: "gearshape",
-                        title: settings.t("main.settingsTitle"),
-                        subtitle: settings.t("main.settingsSubtitle")
-                    )
-                }
-                .buttonStyle(.plain)
+    private func unlockAppIfNeeded() async {
+        guard settings.biometricLockEnabled else {
+            await MainActor.run {
+                showLockOverlay = false
             }
+            return
+        }
+
+        guard !isAuthenticatingLock else { return }
+
+        await MainActor.run {
+            isAuthenticatingLock = true
+        }
+
+        let success = await AppLockService.shared.authenticate(language: settings.language)
+
+        await MainActor.run {
+            isAuthenticatingLock = false
+            showLockOverlay = !success
         }
     }
 
@@ -558,6 +274,19 @@ struct MainTabView: View {
 
         refreshInsight()
         evaluateBudgetNotifications()
+    }
+
+    private func persistExpenses() {
+        DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
+    }
+
+    private func persistIncomes() {
+        DataManager.shared.saveIncomes(incomes, user: auth.currentUser)
+    }
+
+    private func openBudgetEditor() {
+        budgetInput = monthlyBudget.amount > 0 ? String(Int(monthlyBudget.amount)) : ""
+        showBudgetEditAlert = true
     }
 
     private func refreshInsight() {
@@ -654,217 +383,6 @@ struct MainTabView: View {
         }
     }
 
-    private var progressTintColor: Color {
-        if budgetProgress >= 1.0 {
-            return .red
-        } else if budgetProgress >= 0.8 {
-            return BrandPalette.secondary
-        } else {
-            return BrandPalette.primary
-        }
-    }
-
-    private var currentMonthLabel: String {
-        settings.monthYearString(from: Date())
-    }
-
-    private var greetingText: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        let userName = auth.isUsingLocalMode
-            ? (settings.language == .spanish ? "local" : "local")
-            : auth.currentUser
-
-        switch hour {
-        case 5..<12:
-            return settings.tr("main.goodMorning", userName)
-        case 12..<19:
-            return settings.tr("main.goodAfternoon", userName)
-        default:
-            return settings.tr("main.goodEvening", userName)
-        }
-    }
-
-    private var headerSubtitle: String {
-        if totalIncome <= 0 && currentMonthExpenses.isEmpty {
-            return settings.language == .spanish
-            ? "Empieza registrando ingresos y gastos para entender mejor tu mes."
-            : "Start by recording income and expenses to understand your month."
-        } else if totalIncome > 0 && currentMonthExpenses.isEmpty {
-            return settings.language == .spanish
-            ? "Ya registraste ingresos. Ahora agrega gastos para medir tu balance real."
-            : "Your income is already registered. Now add expenses to measure your real balance."
-        } else if monthlyBudget.amount <= 0 {
-            return settings.t("main.header.noBudget")
-        } else if remainingBudget < 0 {
-            return settings.t("main.header.over")
-        } else if budgetProgress >= 0.8 {
-            return settings.t("main.header.near")
-        } else {
-            return settings.t("main.header.ok")
-        }
-    }
-
-    private var userInitials: String {
-        let sourceName = auth.isUsingLocalMode
-            ? (settings.language == .spanish ? "Mi dispositivo" : "My Device")
-            : auth.currentUser
-
-        let components = sourceName
-            .split(separator: " ")
-            .prefix(2)
-
-        let initials = components.compactMap { $0.first }.map(String.init).joined()
-        return initials.isEmpty ? "U" : initials.uppercased()
-    }
-
-    private var avatarPickerButton: some View {
-        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-            ZStack(alignment: .bottomTrailing) {
-                Group {
-                    if let profileImageData,
-                       let uiImage = UIImage(data: profileImageData) {
-                        Image(uiImage: uiImage)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        ZStack {
-                            LinearGradient(
-                                colors: [
-                                    BrandPalette.primary.opacity(0.18),
-                                    BrandPalette.secondary.opacity(0.12)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-
-                            Text(userInitials)
-                                .font(.headline.bold())
-                                .foregroundColor(.primary)
-                        }
-                    }
-                }
-                .frame(width: 60, height: 60)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(BrandPalette.stroke, lineWidth: 1)
-                )
-
-                ZStack {
-                    Circle()
-                        .fill(BrandPalette.primary)
-
-                    Image(systemName: "camera.fill")
-                        .font(.caption2.bold())
-                        .foregroundColor(.white)
-                }
-                .frame(width: 22, height: 22)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func headerInfoPill(icon: String, text: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: icon)
-                .foregroundColor(BrandPalette.primary)
-
-            Text(text)
-                .lineLimit(1)
-        }
-        .font(.caption.weight(.medium))
-        .foregroundColor(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(BrandPalette.surface)
-        .clipShape(Capsule())
-    }
-
-    private func budgetStatItem(title: String, value: String, valueColor: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Text(value)
-                .font(.title3.bold())
-                .foregroundColor(valueColor)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-        .padding(16)
-        .background(BrandPalette.surfaceRaised)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(BrandPalette.stroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func recentExpenseRow(_ expense: Expense) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(expense.category.color.opacity(0.18))
-                    .frame(width: 46, height: 46)
-
-                Image(systemName: expense.category.icon)
-                    .foregroundColor(expense.category.color)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(expense.title)
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
-
-                Text(expense.category.displayName(language: settings.language))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            Text(settings.formatCurrency(expense.amount))
-                .font(.subheadline.bold())
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(16)
-        .background(BrandPalette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
-    private func quickActionCard(icon: String, title: String, subtitle: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.headline)
-                .foregroundColor(BrandPalette.primary)
-                .frame(width: 40, height: 40)
-                .background(BrandPalette.primary.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.primary)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundColor(.secondary)
-        }
-        .padding(16)
-        .background(BrandPalette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-    }
-
     private var homeTabTitle: String {
         settings.language == .spanish ? "Inicio" : "Home"
     }
@@ -873,57 +391,11 @@ struct MainTabView: View {
         settings.language == .spanish ? "Ingresos" : "Incomes"
     }
 
-    private var homeScreenTitle: String {
-        settings.language == .spanish ? "Mi mes" : "My month"
-    }
-
-    private var totalIncomeTitle: String {
-        settings.language == .spanish ? "Ingresos" : "Income"
-    }
-
-    private var netBalanceTitle: String {
-        settings.language == .spanish ? "Balance neto" : "Net balance"
-    }
-
-    private var budgetLeftTitle: String {
-        settings.language == .spanish ? "Restante presupuesto" : "Budget left"
-    }
-
-    private var budgetNotSetText: String {
-        settings.language == .spanish ? "Sin definir" : "Not set"
-    }
-
     private var addExpenseActionTitle: String {
         settings.language == .spanish ? "Agregar gasto" : "Add expense"
     }
 
     private var addIncomeActionTitle: String {
         settings.language == .spanish ? "Agregar ingreso" : "Add income"
-    }
-
-    private var addIncomeQuickActionTitle: String {
-        settings.language == .spanish ? "Registrar ingreso" : "Record income"
-    }
-
-    private var addIncomeQuickActionSubtitle: String {
-        settings.language == .spanish
-        ? "Agrega dinero que entra este mes"
-        : "Add money coming in this month"
-    }
-
-    private var incomeCountText: String {
-        settings.language == .spanish
-        ? "\(currentMonthIncomes.count) ingresos"
-        : "\(currentMonthIncomes.count) incomes"
-    }
-
-    private var netBalanceColor: Color {
-        if netBalance > 0 {
-            return .green
-        } else if netBalance < 0 {
-            return .red
-        } else {
-            return BrandPalette.primary
-        }
     }
 }
