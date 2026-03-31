@@ -41,6 +41,18 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink {
+                    SecuritySettingsView()
+                } label: {
+                    settingRow(
+                        icon: "lock.shield",
+                        title: settings.securitySectionTitle,
+                        subtitle: settings.language == .spanish
+                        ? "Ocultar montos y proteger la app al volver del fondo"
+                        : "Hide amounts and protect the app when returning from background"
+                    )
+                }
+
+                NavigationLink {
                     NotificationSettingsView()
                 } label: {
                     settingRow(
@@ -81,6 +93,22 @@ struct SettingsView: View {
                 }
             } header: {
                 Text(settings.t("settings.section.app"))
+            }
+
+            Section {
+                NavigationLink {
+                    BackupRestoreView()
+                } label: {
+                    settingRow(
+                        icon: "externaldrive.badge.icloud",
+                        title: settings.language == .spanish ? "Respaldo y restauración" : "Backup & restore",
+                        subtitle: settings.language == .spanish
+                        ? "Exporta o recupera un JSON completo de tu cuenta"
+                        : "Export or recover a full JSON snapshot of your account"
+                    )
+                }
+            } header: {
+                Text(settings.language == .spanish ? "Datos" : "Data")
             }
 
             Section {

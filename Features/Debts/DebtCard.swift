@@ -195,11 +195,6 @@ struct DebtCard: View {
     }
 
     private func money(_ amount: Double) -> String {
-        amount.asCurrency(
-            code: settings.effectiveCurrency.rawValue,
-            locale: settings.appLocale,
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        )
+        settings.secureCurrency(amount)
     }
 }

@@ -38,7 +38,7 @@ struct HistoryMonthStripView: View {
                                 Text(item.label)
                                     .font(.subheadline.bold())
 
-                                Text(settings.formatCurrency(item.total, decimals: 0))
+                                Text(settings.secureCurrency(item.total, decimals: 0))
                                     .font(.caption)
                                     .foregroundColor(
                                         item.month == selectedMonth

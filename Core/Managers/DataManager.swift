@@ -39,6 +39,10 @@ final class DataManager {
         "expenses_\(user)"
     }
 
+    private func incomesKey(for user: String) -> String {
+        "incomes_\(user)"
+    }
+
     private func debtsKey(for user: String) -> String {
         "debts_\(user)"
     }
@@ -105,6 +109,51 @@ final class DataManager {
         } catch {
             AppLogger.debug("Error cargando gastos desde SwiftData: \(error)")
             return legacyLoad([Expense].self, forKey: expensesKey(for: cleanUser)) ?? []
+        }
+    }
+
+    // MARK: - Incomes
+
+    func saveIncomes(_ incomes: [Income], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            legacySave(incomes, forKey: incomesKey(for: cleanUser))
+            return
+        }
+
+        do {
+            let context = makeContext()
+            try replaceIncomes(incomes, user: cleanUser, context: context)
+            try context.save()
+        } catch {
+            AppLogger.debug("Error guardando ingresos en SwiftData: \(error)")
+            legacySave(incomes, forKey: incomesKey(for: cleanUser))
+        }
+    }
+
+    func loadIncomes(user: String) -> [Income] {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return [] }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            return legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) ?? []
+        }
+
+        do {
+            let context = makeContext()
+            let targetUser = cleanUser
+
+            let descriptor = FetchDescriptor<StoredIncome>(
+                predicate: #Predicate { $0.user == targetUser },
+                sortBy: [SortDescriptor(\StoredIncome.date, order: .reverse)]
+            )
+
+            return try context.fetch(descriptor).map { $0.toIncome() }
+        } catch {
+            AppLogger.debug("Error cargando ingresos desde SwiftData: \(error)")
+            return legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) ?? []
         }
     }
 
@@ -367,6 +416,7 @@ final class DataManager {
         do {
             let context = makeContext()
             try deleteStoredExpenses(user: cleanUser, context: context)
+            try deleteStoredIncomes(user: cleanUser, context: context)
             try deleteStoredDebts(user: cleanUser, context: context)
             try deleteStoredRecurringPayments(user: cleanUser, context: context)
             try deleteStoredMonthlyBudget(user: cleanUser, context: context)
@@ -381,6 +431,7 @@ final class DataManager {
         let keys = [
             profileImageKey(for: cleanUser),
             expensesKey(for: cleanUser),
+            incomesKey(for: cleanUser),
             debtsKey(for: cleanUser),
             recurringPaymentsKey(for: cleanUser),
             budgetKey(for: cleanUser),
@@ -413,6 +464,10 @@ final class DataManager {
                 try replaceExpenses(legacyExpenses, user: cleanUser, context: context)
             }
 
+            if let legacyIncomes: [Income] = legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) {
+                try replaceIncomes(legacyIncomes, user: cleanUser, context: context)
+            }
+
             if let legacyDebts: [Debt] = legacyLoad([Debt].self, forKey: debtsKey(for: cleanUser)) {
                 try replaceDebts(legacyDebts, user: cleanUser, context: context)
             }
@@ -428,6 +483,7 @@ final class DataManager {
             try context.save()
 
             defaults.removeObject(forKey: expensesKey(for: cleanUser))
+            defaults.removeObject(forKey: incomesKey(for: cleanUser))
             defaults.removeObject(forKey: debtsKey(for: cleanUser))
             defaults.removeObject(forKey: recurringPaymentsKey(for: cleanUser))
             defaults.removeObject(forKey: budgetKey(for: cleanUser))
@@ -451,6 +507,14 @@ final class DataManager {
 
         for expense in expenses {
             context.insert(StoredExpense(expense: expense, user: user))
+        }
+    }
+
+    private func replaceIncomes(_ incomes: [Income], user: String, context: ModelContext) throws {
+        try deleteStoredIncomes(user: user, context: context)
+
+        for income in incomes {
+            context.insert(StoredIncome(income: income, user: user))
         }
     }
 
@@ -487,6 +551,15 @@ final class DataManager {
     private func deleteStoredExpenses(user: String, context: ModelContext) throws {
         let targetUser = user
         let descriptor = FetchDescriptor<StoredExpense>(
+            predicate: #Predicate { $0.user == targetUser }
+        )
+
+        try context.fetch(descriptor).forEach { context.delete($0) }
+    }
+
+    private func deleteStoredIncomes(user: String, context: ModelContext) throws {
+        let targetUser = user
+        let descriptor = FetchDescriptor<StoredIncome>(
             predicate: #Predicate { $0.user == targetUser }
         )
 

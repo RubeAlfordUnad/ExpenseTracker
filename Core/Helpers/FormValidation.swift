@@ -4,6 +4,9 @@ enum FormValidationError: Identifiable, Equatable {
     case emptyExpenseTitle
     case invalidExpenseAmount
 
+    case emptyIncomeTitle
+    case invalidIncomeAmount
+
     case emptyRecurringTitle
     case invalidRecurringAmount
     case invalidRecurringDay
@@ -37,6 +40,16 @@ enum FormValidationError: Identifiable, Equatable {
             : "Enter a title for the expense."
 
         case .invalidExpenseAmount:
+            return language == .spanish
+            ? "Ingresa un monto válido mayor que cero."
+            : "Enter a valid amount greater than zero."
+
+        case .emptyIncomeTitle:
+            return language == .spanish
+            ? "Escribe un título para el ingreso."
+            : "Enter a title for the income."
+
+        case .invalidIncomeAmount:
             return language == .spanish
             ? "Ingresa un monto válido mayor que cero."
             : "Enter a valid amount greater than zero."
@@ -127,6 +140,18 @@ enum FormValidator {
 
         if normalizedPositiveAmount(from: amount) == nil {
             return .invalidExpenseAmount
+        }
+
+        return nil
+    }
+
+    static func validateIncome(title: String, amount: String) -> FormValidationError? {
+        if trim(title).isEmpty {
+            return .emptyIncomeTitle
+        }
+
+        if normalizedPositiveAmount(from: amount) == nil {
+            return .invalidIncomeAmount
         }
 
         return nil

@@ -1,10 +1,3 @@
-//
-//  PersistentRecords.swift
-//  ExpenseTracker
-//
-//  Created by Ruben Alford on 21/03/26.
-//
-
 import Foundation
 import SwiftData
 
@@ -33,6 +26,35 @@ final class StoredExpense {
             amount: amount,
             date: date,
             category: Category(rawValue: categoryRawValue) ?? .other
+        )
+    }
+}
+
+@Model
+final class StoredIncome {
+    @Attribute(.unique) var id: UUID
+    var user: String
+    var title: String
+    var amount: Double
+    var date: Date
+    var categoryRawValue: String
+
+    init(income: Income, user: String) {
+        self.id = income.id
+        self.user = user
+        self.title = income.title
+        self.amount = income.amount
+        self.date = income.date
+        self.categoryRawValue = income.category.rawValue
+    }
+
+    func toIncome() -> Income {
+        Income(
+            id: id,
+            title: title,
+            amount: amount,
+            date: date,
+            category: IncomeCategory(rawValue: categoryRawValue) ?? .other
         )
     }
 }

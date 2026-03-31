@@ -10,6 +10,7 @@ final class PersistenceController {
 
     private let schema = Schema([
         StoredExpense.self,
+        StoredIncome.self,
         StoredDebt.self,
         StoredRecurringPayment.self,
         StoredMonthlyBudget.self
