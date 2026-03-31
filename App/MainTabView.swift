@@ -26,6 +26,7 @@ struct MainTabView: View {
 
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var profileImageData: Data?
+    @State private var profileDisplayName: String = ""
 
     @State private var hasLoadedInitialData = false
     @State private var hasShownInsightThisSession = false
@@ -36,6 +37,7 @@ struct MainTabView: View {
     private let profileImageChangedNotification = Notification.Name("profileImageDidChange")
     private let notificationPreferencesDidChange = Notification.Name("notificationPreferencesDidChange")
     private let backupRestoreDidComplete = Notification.Name("backupRestoreDidComplete")
+    private let profileDisplayNameChangedNotification = Notification.Name("profileDisplayNameDidChange")
 
     private var currentMonthExpenses: [Expense] {
         let calendar = Calendar.current
@@ -59,6 +61,7 @@ struct MainTabView: View {
                         monthlyBudget: $monthlyBudget,
                         selectedPhotoItem: $selectedPhotoItem,
                         profileImageData: $profileImageData,
+                        profileDisplayName: profileDisplayName,
                         showAddExpense: $showAddExpense,
                         showAddIncome: $showAddIncome,
                         onReloadHomeData: reloadHomeData,
@@ -154,6 +157,9 @@ struct MainTabView: View {
                     }
                     .onReceive(NotificationCenter.default.publisher(for: backupRestoreDidComplete)) { _ in
                         reloadHomeData()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: profileDisplayNameChangedNotification)) { _ in
+                        profileDisplayName = DataManager.shared.loadProfileDisplayName(user: auth.currentUser) ?? ""
                     }
                     .onChange(of: selectedPhotoItem) { _, newItem in
                         Task {
@@ -269,6 +275,7 @@ struct MainTabView: View {
         incomes = DataManager.shared.loadIncomes(user: auth.currentUser)
         monthlyBudget = DataManager.shared.loadMonthlyBudget(user: auth.currentUser) ?? MonthlyBudget(amount: 0)
         profileImageData = DataManager.shared.loadProfileImageData(user: auth.currentUser)
+        profileDisplayName = DataManager.shared.loadProfileDisplayName(user: auth.currentUser) ?? ""
 
         DataManager.shared.resetBudgetAlertStateIfNeeded(user: auth.currentUser)
 

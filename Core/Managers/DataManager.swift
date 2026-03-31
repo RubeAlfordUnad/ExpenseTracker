@@ -16,6 +16,10 @@ final class DataManager {
     private func profileImageKey(for user: String) -> String {
         "profileImage_\(user)"
     }
+    
+    private func profileDisplayNameKey(for user: String) -> String {
+        "profileDisplayName_\(user)"
+    }
 
     private func sanitizedFileName(for user: String) -> String {
         user.replacingOccurrences(of: #"[^A-Za-z0-9._-]"#, with: "_", options: .regularExpression)
@@ -406,6 +410,34 @@ final class DataManager {
 
         return nil
     }
+    
+    // MARK: - Profile Display Name
+
+    func saveProfileDisplayName(_ name: String?, user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        let trimmed = name?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let trimmed, !trimmed.isEmpty {
+            UserDefaults.standard.set(trimmed, forKey: profileDisplayNameKey(for: cleanUser))
+        } else {
+            UserDefaults.standard.removeObject(forKey: profileDisplayNameKey(for: cleanUser))
+        }
+    }
+
+    func loadProfileDisplayName(user: String) -> String? {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return nil }
+
+        guard let stored = UserDefaults.standard.string(forKey: profileDisplayNameKey(for: cleanUser)) else {
+            return nil
+        }
+
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     // MARK: - Account Deletion
 
@@ -437,7 +469,8 @@ final class DataManager {
             budgetKey(for: cleanUser),
             notificationPreferencesKey(for: cleanUser),
             budgetAlertStateKey(for: cleanUser),
-            financialMigrationFlagKey(for: cleanUser)
+            financialMigrationFlagKey(for: cleanUser),
+            profileDisplayNameKey(for: cleanUser),
         ]
 
         keys.forEach { defaults.removeObject(forKey: $0) }

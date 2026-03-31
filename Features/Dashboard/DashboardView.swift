@@ -12,6 +12,7 @@ struct DashboardView: View {
     @Binding var monthlyBudget: MonthlyBudget
     @Binding var selectedPhotoItem: PhotosPickerItem?
     @Binding var profileImageData: Data?
+    let profileDisplayName: String
     @Binding var showAddExpense: Bool
     @Binding var showAddIncome: Bool
 
@@ -89,20 +90,31 @@ struct DashboardView: View {
     private var currentMonthLabel: String {
         settings.monthYearString(from: Date())
     }
+    
+    private var effectiveDashboardName: String {
+        let trimmed = profileDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !trimmed.isEmpty {
+            return trimmed
+        }
+
+        if auth.isUsingLocalMode {
+            return settings.language == .spanish ? "local" : "local"
+        }
+
+        return auth.currentUser
+    }
 
     private var greetingText: String {
         let hour = calendar.component(.hour, from: Date())
-        let userName = auth.isUsingLocalMode
-            ? (settings.language == .spanish ? "local" : "local")
-            : auth.currentUser
 
         switch hour {
         case 5..<12:
-            return settings.tr("main.goodMorning", userName)
+            return settings.tr("main.goodMorning", effectiveDashboardName)
         case 12..<19:
-            return settings.tr("main.goodAfternoon", userName)
+            return settings.tr("main.goodAfternoon", effectiveDashboardName)
         default:
-            return settings.tr("main.goodEvening", userName)
+            return settings.tr("main.goodEvening", effectiveDashboardName)
         }
     }
 
@@ -778,9 +790,7 @@ struct DashboardView: View {
     }
 
     private var userInitials: String {
-        let sourceName = auth.isUsingLocalMode
-            ? (settings.language == .spanish ? "Mi dispositivo" : "My Device")
-            : auth.currentUser
+        let sourceName = effectiveDashboardName
 
         let components = sourceName
             .split(separator: " ")

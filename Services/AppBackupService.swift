@@ -13,6 +13,7 @@ struct AppBackupSnapshot: Codable {
     let monthlyBudget: MonthlyBudget?
     let notificationPreferences: NotificationPreferences
     let profileImageData: Data?
+    let profileDisplayName: String?
 }
 
 struct AppBackupSummary {
@@ -73,7 +74,8 @@ final class AppBackupService {
             recurringPayments: DataManager.shared.loadRecurringPayments(user: cleanUser),
             monthlyBudget: DataManager.shared.loadMonthlyBudget(user: cleanUser),
             notificationPreferences: DataManager.shared.loadNotificationPreferences(user: cleanUser),
-            profileImageData: DataManager.shared.loadProfileImageData(user: cleanUser)
+            profileImageData: DataManager.shared.loadProfileImageData(user: cleanUser),
+            profileDisplayName: DataManager.shared.loadProfileDisplayName(user: cleanUser)
         )
     }
 
@@ -170,6 +172,7 @@ final class AppBackupService {
         DataManager.shared.saveNotificationPreferences(snapshot.notificationPreferences, user: cleanUser)
         DataManager.shared.saveBudgetAlertState(BudgetAlertState(), user: cleanUser)
         DataManager.shared.saveProfileImageData(snapshot.profileImageData, user: cleanUser)
+        DataManager.shared.saveProfileDisplayName(snapshot.profileDisplayName, user: cleanUser)
     }
 
     private func fileName() -> String {

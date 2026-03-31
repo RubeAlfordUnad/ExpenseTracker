@@ -16,9 +16,7 @@ struct SettingsView: View {
                     settingRow(
                         icon: "person.crop.circle",
                         title: settings.t("settings.profile"),
-                        subtitle: auth.isUsingLocalMode
-                        ? (settings.language == .spanish ? "Modo local" : "Local mode")
-                        : (auth.currentUser.isEmpty ? settings.t("settings.profileSubtitle") : auth.currentUser)
+                        subtitle: profileRowSubtitle
                     )
                 }
             } header: {
@@ -166,5 +164,18 @@ struct SettingsView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+    private var profileRowSubtitle: String {
+        let savedName = DataManager.shared.loadProfileDisplayName(user: auth.currentUser) ?? ""
+
+        if !savedName.isEmpty {
+            return savedName
+        }
+
+        if auth.isUsingLocalMode {
+            return settings.language == .spanish ? "Modo local" : "Local mode"
+        }
+
+        return auth.currentUser.isEmpty ? settings.t("settings.profileSubtitle") : auth.currentUser
     }
 }
