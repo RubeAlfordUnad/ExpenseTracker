@@ -6,6 +6,14 @@ enum Category: String, CaseIterable, Codable {
     case transport = "Transporte"
     case entertainment = "Entretenimiento"
     case bills = "Facturas"
+    case housing = "Vivienda"
+    case health = "Salud"
+    case shopping = "Compras"
+    case education = "Educación"
+    case subscriptions = "Suscripciones"
+    case personalCare = "Cuidado personal"
+    case travel = "Viajes"
+    case gifts = "Regalos"
     case other = "Otros"
 
     var color: Color {
@@ -18,6 +26,22 @@ enum Category: String, CaseIterable, Codable {
             return .purple
         case .bills:
             return .red
+        case .housing:
+            return .brown
+        case .health:
+            return .pink
+        case .shopping:
+            return .indigo
+        case .education:
+            return .mint
+        case .subscriptions:
+            return .cyan
+        case .personalCare:
+            return .teal
+        case .travel:
+            return .green
+        case .gifts:
+            return .yellow
         case .other:
             return .gray
         }
@@ -33,6 +57,22 @@ enum Category: String, CaseIterable, Codable {
             return "gamecontroller.fill"
         case .bills:
             return "doc.text.fill"
+        case .housing:
+            return "house.fill"
+        case .health:
+            return "cross.case.fill"
+        case .shopping:
+            return "bag.fill"
+        case .education:
+            return "book.fill"
+        case .subscriptions:
+            return "play.rectangle.fill"
+        case .personalCare:
+            return "heart.text.square.fill"
+        case .travel:
+            return "airplane"
+        case .gifts:
+            return "gift.fill"
         case .other:
             return "square.grid.2x2.fill"
         }
@@ -44,11 +84,28 @@ enum Category: String, CaseIterable, Codable {
         case (.transport, .spanish): return "Transporte"
         case (.entertainment, .spanish): return "Entretenimiento"
         case (.bills, .spanish): return "Facturas"
+        case (.housing, .spanish): return "Vivienda"
+        case (.health, .spanish): return "Salud"
+        case (.shopping, .spanish): return "Compras"
+        case (.education, .spanish): return "Educación"
+        case (.subscriptions, .spanish): return "Suscripciones"
+        case (.personalCare, .spanish): return "Cuidado personal"
+        case (.travel, .spanish): return "Viajes"
+        case (.gifts, .spanish): return "Regalos"
         case (.other, .spanish): return "Otros"
+
         case (.food, .english): return "Food"
         case (.transport, .english): return "Transport"
         case (.entertainment, .english): return "Entertainment"
         case (.bills, .english): return "Bills"
+        case (.housing, .english): return "Housing"
+        case (.health, .english): return "Health"
+        case (.shopping, .english): return "Shopping"
+        case (.education, .english): return "Education"
+        case (.subscriptions, .english): return "Subscriptions"
+        case (.personalCare, .english): return "Personal care"
+        case (.travel, .english): return "Travel"
+        case (.gifts, .english): return "Gifts"
         case (.other, .english): return "Other"
         }
     }
