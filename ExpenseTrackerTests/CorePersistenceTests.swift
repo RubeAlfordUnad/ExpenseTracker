@@ -1,10 +1,3 @@
-//
-//  CorePersistenceTests.swift
-//  ExpenseTracker
-//
-//  Created by Ruben Alford on 23/03/26.
-//
-
 import Foundation
 import Testing
 @testable import ExpenseTracker
@@ -206,7 +199,7 @@ struct CorePersistenceTests {
             NotificationPreferences(
                 recurringPaymentsEnabled: true,
                 budgetAlertsEnabled: true,
-                budgetThresholdPercent: 80
+                budgetAlertThreshold: 0.80,
             ),
             user: username
         )

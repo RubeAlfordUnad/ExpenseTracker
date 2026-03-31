@@ -8,7 +8,10 @@ struct MainTabView: View {
     @EnvironmentObject var settings: AppSettings
 
     @State private var expenses: [Expense] = []
+    @State private var incomes: [Income] = []
+
     @State private var showAddExpense = false
+    @State private var showAddIncome = false
 
     @State private var monthlyBudget: MonthlyBudget = MonthlyBudget(amount: 0)
 
@@ -42,8 +45,28 @@ struct MainTabView: View {
         }
     }
 
+    private var currentMonthIncomes: [Income] {
+        let calendar = Calendar.current
+        let now = Date()
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
+
+        return incomes.filter {
+            calendar.component(.month, from: $0.date) == currentMonth &&
+            calendar.component(.year, from: $0.date) == currentYear
+        }
+    }
+
     private var totalSpent: Double {
         currentMonthExpenses.reduce(0) { $0 + $1.amount }
+    }
+
+    private var totalIncome: Double {
+        currentMonthIncomes.reduce(0) { $0 + $1.amount }
+    }
+
+    private var netBalance: Double {
+        totalIncome - totalSpent
     }
 
     private var remainingBudget: Double {
@@ -86,7 +109,7 @@ struct MainTabView: View {
                     ScrollView(showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 18) {
                             headerSection
-                            budgetHeroCard
+                            monthlyOverviewCard
                             progressSection
 
                             if let topCategory {
@@ -117,12 +140,17 @@ struct MainTabView: View {
                                 Image(systemName: "gearshape")
                             }
 
-                            Button {
-                                showAddExpense = true
+                            Menu {
+                                Button(addExpenseActionTitle) {
+                                    showAddExpense = true
+                                }
+
+                                Button(addIncomeActionTitle) {
+                                    showAddIncome = true
+                                }
                             } label: {
-                                Image(systemName: "plus")
+                                Image(systemName: "plus.circle")
                             }
-                            .accessibilityIdentifier("expenses.add")
                         }
                     }
                     .sheet(isPresented: $showAddExpense) {
@@ -131,6 +159,13 @@ struct MainTabView: View {
                             DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
                             refreshInsight()
                             evaluateBudgetNotifications()
+                        }
+                        .environmentObject(settings)
+                    }
+                    .sheet(isPresented: $showAddIncome) {
+                        AddIncomeView { newIncome in
+                            incomes.append(newIncome)
+                            DataManager.shared.saveIncomes(incomes, user: auth.currentUser)
                         }
                         .environmentObject(settings)
                     }
@@ -155,9 +190,11 @@ struct MainTabView: View {
                         Text(budgetValidationMessage)
                     }
                     .onAppear {
+                        reloadHomeData()
+
                         guard !hasLoadedInitialData else { return }
                         hasLoadedInitialData = true
-                        loadInitialData()
+                        presentInsightIfNeeded()
                     }
                     .onReceive(NotificationCenter.default.publisher(for: profileImageChangedNotification)) { _ in
                         profileImageData = DataManager.shared.loadProfileImageData(user: auth.currentUser)
@@ -172,8 +209,13 @@ struct MainTabView: View {
                     }
                 }
                 .tabItem {
-                    Label(settings.t("tab.expenses"), systemImage: "list.bullet")
+                    Label(homeTabTitle, systemImage: "house")
                 }
+
+                IncomesView()
+                    .tabItem {
+                        Label(incomesTabTitle, systemImage: "arrow.down.circle")
+                    }
 
                 DebtsView()
                     .tabItem {
@@ -205,7 +247,7 @@ struct MainTabView: View {
                         .font(.caption.bold())
                         .foregroundColor(BrandPalette.primary)
 
-                    Text(settings.t("main.screenTitle"))
+                    Text(homeScreenTitle)
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
@@ -232,7 +274,12 @@ struct MainTabView: View {
 
                     headerInfoPill(
                         icon: "list.bullet",
-                        text: settings.tr("main.movesCount", currentMonthExpenses.count)
+                        text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count)
+                    )
+
+                    headerInfoPill(
+                        icon: "arrow.down.circle",
+                        text: incomeCountText
                     )
                 }
 
@@ -244,7 +291,12 @@ struct MainTabView: View {
 
                     headerInfoPill(
                         icon: "list.bullet",
-                        text: settings.tr("main.movesCount", currentMonthExpenses.count)
+                        text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count)
+                    )
+
+                    headerInfoPill(
+                        icon: "arrow.down.circle",
+                        text: incomeCountText
                     )
                 }
             }
@@ -258,7 +310,7 @@ struct MainTabView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var budgetHeroCard: some View {
+    private var monthlyOverviewCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -266,10 +318,19 @@ struct MainTabView: View {
                         .font(.headline)
                         .foregroundColor(.secondary)
 
-                    Text(settings.formatCurrency(monthlyBudget.amount))
+                    Text(settings.formatCurrency(netBalance))
                         .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(netBalanceColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
+
+                    Text(
+                        settings.language == .spanish
+                        ? "Tu balance neto del mes se calcula con ingresos menos gastos."
+                        : "Your monthly net balance is calculated as income minus expenses."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
 
                 Spacer()
@@ -290,15 +351,31 @@ struct MainTabView: View {
 
             HStack(spacing: 12) {
                 budgetStatItem(
+                    title: totalIncomeTitle,
+                    value: settings.formatCurrency(totalIncome),
+                    valueColor: .green
+                )
+
+                budgetStatItem(
                     title: settings.t("main.totalSpent"),
                     value: settings.formatCurrency(totalSpent),
                     valueColor: .red
                 )
+            }
+
+            HStack(spacing: 12) {
+                budgetStatItem(
+                    title: netBalanceTitle,
+                    value: settings.formatCurrency(netBalance),
+                    valueColor: netBalanceColor
+                )
 
                 budgetStatItem(
-                    title: settings.t("main.available"),
-                    value: settings.formatCurrency(remainingBudget),
-                    valueColor: remainingBudget < 0 ? .red : BrandPalette.primary
+                    title: budgetLeftTitle,
+                    value: monthlyBudget.amount > 0 ? settings.formatCurrency(remainingBudget) : budgetNotSetText,
+                    valueColor: monthlyBudget.amount > 0
+                    ? (remainingBudget < 0 ? .red : BrandPalette.primary)
+                    : .secondary
                 )
             }
         }
@@ -446,6 +523,17 @@ struct MainTabView: View {
                 }
                 .buttonStyle(.plain)
 
+                Button {
+                    showAddIncome = true
+                } label: {
+                    quickActionCard(
+                        icon: "arrow.down.circle",
+                        title: addIncomeQuickActionTitle,
+                        subtitle: addIncomeQuickActionSubtitle
+                    )
+                }
+                .buttonStyle(.plain)
+
                 NavigationLink {
                     SettingsView()
                 } label: {
@@ -460,15 +548,15 @@ struct MainTabView: View {
         }
     }
 
-    private func loadInitialData() {
+    private func reloadHomeData() {
         expenses = DataManager.shared.loadExpenses(user: auth.currentUser)
+        incomes = DataManager.shared.loadIncomes(user: auth.currentUser)
         monthlyBudget = DataManager.shared.loadMonthlyBudget(user: auth.currentUser) ?? MonthlyBudget(amount: 0)
         profileImageData = DataManager.shared.loadProfileImageData(user: auth.currentUser)
 
         DataManager.shared.resetBudgetAlertStateIfNeeded(user: auth.currentUser)
 
         refreshInsight()
-        presentInsightIfNeeded()
         evaluateBudgetNotifications()
     }
 
@@ -597,10 +685,16 @@ struct MainTabView: View {
     }
 
     private var headerSubtitle: String {
-        if monthlyBudget.amount <= 0 {
+        if totalIncome <= 0 && currentMonthExpenses.isEmpty {
+            return settings.language == .spanish
+            ? "Empieza registrando ingresos y gastos para entender mejor tu mes."
+            : "Start by recording income and expenses to understand your month."
+        } else if totalIncome > 0 && currentMonthExpenses.isEmpty {
+            return settings.language == .spanish
+            ? "Ya registraste ingresos. Ahora agrega gastos para medir tu balance real."
+            : "Your income is already registered. Now add expenses to measure your real balance."
+        } else if monthlyBudget.amount <= 0 {
             return settings.t("main.header.noBudget")
-        } else if currentMonthExpenses.isEmpty {
-            return settings.t("main.header.hasBudget")
         } else if remainingBudget < 0 {
             return settings.t("main.header.over")
         } else if budgetProgress >= 0.8 {
@@ -769,5 +863,67 @@ struct MainTabView: View {
         .padding(16)
         .background(BrandPalette.surface)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var homeTabTitle: String {
+        settings.language == .spanish ? "Inicio" : "Home"
+    }
+
+    private var incomesTabTitle: String {
+        settings.language == .spanish ? "Ingresos" : "Incomes"
+    }
+
+    private var homeScreenTitle: String {
+        settings.language == .spanish ? "Mi mes" : "My month"
+    }
+
+    private var totalIncomeTitle: String {
+        settings.language == .spanish ? "Ingresos" : "Income"
+    }
+
+    private var netBalanceTitle: String {
+        settings.language == .spanish ? "Balance neto" : "Net balance"
+    }
+
+    private var budgetLeftTitle: String {
+        settings.language == .spanish ? "Restante presupuesto" : "Budget left"
+    }
+
+    private var budgetNotSetText: String {
+        settings.language == .spanish ? "Sin definir" : "Not set"
+    }
+
+    private var addExpenseActionTitle: String {
+        settings.language == .spanish ? "Agregar gasto" : "Add expense"
+    }
+
+    private var addIncomeActionTitle: String {
+        settings.language == .spanish ? "Agregar ingreso" : "Add income"
+    }
+
+    private var addIncomeQuickActionTitle: String {
+        settings.language == .spanish ? "Registrar ingreso" : "Record income"
+    }
+
+    private var addIncomeQuickActionSubtitle: String {
+        settings.language == .spanish
+        ? "Agrega dinero que entra este mes"
+        : "Add money coming in this month"
+    }
+
+    private var incomeCountText: String {
+        settings.language == .spanish
+        ? "\(currentMonthIncomes.count) ingresos"
+        : "\(currentMonthIncomes.count) incomes"
+    }
+
+    private var netBalanceColor: Color {
+        if netBalance > 0 {
+            return .green
+        } else if netBalance < 0 {
+            return .red
+        } else {
+            return BrandPalette.primary
+        }
     }
 }

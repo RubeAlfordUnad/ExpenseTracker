@@ -1,10 +1,3 @@
-//
-//  ExpenseTrackerUITests.swift
-//  ExpenseTrackerUITests
-//
-//  Created by Ruben Alford on 26/02/26.
-//
-
 import XCTest
 
 final class ExpenseTrackerUITests: XCTestCase {
