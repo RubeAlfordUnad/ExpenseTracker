@@ -210,8 +210,6 @@ enum FormValidator {
     }
 
     private static func normalizedNumericString(from text: String) -> String {
-        trim(text)
-            .replacingOccurrences(of: " ", with: "")
-            .replacingOccurrences(of: ",", with: ".")
+        MoneyInputFormatter.normalizedDecimalString(from: text) ?? ""
     }
 }

@@ -1,14 +1,20 @@
 import Foundation
 import SwiftData
 
+enum PersistenceStartupState {
+    case persistent
+    case inMemoryFallback
+}
+
 @MainActor
 final class PersistenceController {
 
     static let shared = PersistenceController()
 
     let container: ModelContainer
+    let startupState: PersistenceStartupState
 
-    private let schema = Schema([
+    private static let appSchema = Schema([
         StoredExpense.self,
         StoredIncome.self,
         StoredDebt.self,
@@ -18,16 +24,43 @@ final class PersistenceController {
 
     private init() {
         do {
-            let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-            container = try ModelContainer(for: schema, configurations: [configuration])
+            let configuration = ModelConfiguration(
+                schema: Self.appSchema,
+                isStoredInMemoryOnly: false
+            )
+
+            container = try ModelContainer(
+                for: Self.appSchema,
+                configurations: [configuration]
+            )
+
+            startupState = .persistent
         } catch {
             assertionFailure("No se pudo crear el ModelContainer persistente de SwiftData: \(error)")
+            AppLogger.debug("Fallo SwiftData persistente. Se usará fallback en memoria. Error: \(error)")
+
+            let fallbackConfiguration = ModelConfiguration(
+                schema: Self.appSchema,
+                isStoredInMemoryOnly: true
+            )
 
             do {
-                let fallbackConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-                container = try ModelContainer(for: schema, configurations: [fallbackConfiguration])
+                container = try ModelContainer(
+                    for: Self.appSchema,
+                    configurations: [fallbackConfiguration]
+                )
+
+                startupState = .inMemoryFallback
             } catch {
-                fatalError("No se pudo crear el ModelContainer de SwiftData ni el fallback en memoria: \(error)")
+                assertionFailure("No se pudo crear tampoco el fallback en memoria de SwiftData: \(error)")
+                AppLogger.debug("Fallo crítico SwiftData en memoria. Se intentará una última vez. Error: \(error)")
+
+                container = try! ModelContainer(
+                    for: Self.appSchema,
+                    configurations: [fallbackConfiguration]
+                )
+
+                startupState = .inMemoryFallback
             }
         }
     }

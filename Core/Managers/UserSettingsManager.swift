@@ -1,21 +1,14 @@
-//
-//  UserSettingsManager.swift
-//  ExpenseTracker
-//
-//  Created by Ruben Alford on 17/03/26.
-//
+import Foundation
 
-import SwiftUI
-
-class UserSettingsManager {
+@available(*, deprecated, message: "Wrapper legado. Usa AppSettings directamente y elimina este archivo cuando ya no haya referencias.")
+final class UserSettingsManager {
 
     static let shared = UserSettingsManager()
 
     private let languageKey = "app_language"
     private let notificationsKey = "notifications_enabled"
-    private let profileImageKey = "profile_image"
 
-    // MARK: LANGUAGE
+    private init() {}
 
     func saveLanguage(_ language: AppLanguage) {
         UserDefaults.standard.set(language.rawValue, forKey: languageKey)
@@ -24,12 +17,12 @@ class UserSettingsManager {
     func loadLanguage() -> AppLanguage {
         guard let value = UserDefaults.standard.string(forKey: languageKey),
               let language = AppLanguage(rawValue: value)
-        else { return .english }
+        else {
+            return .english
+        }
 
         return language
     }
-
-    // MARK: NOTIFICATIONS
 
     func saveNotificationsEnabled(_ value: Bool) {
         UserDefaults.standard.set(value, forKey: notificationsKey)
@@ -38,5 +31,4 @@ class UserSettingsManager {
     func loadNotificationsEnabled() -> Bool {
         UserDefaults.standard.bool(forKey: notificationsKey)
     }
-
 }

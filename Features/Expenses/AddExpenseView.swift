@@ -38,9 +38,11 @@ struct AddExpenseView: View {
                 TextField(settings.t("expense.title"), text: $title)
                     .accessibilityIdentifier("expense.title.field")
 
-                TextField(settings.t("expense.amount"), text: $amount)
-                    .keyboardType(.decimalPad)
-                    .accessibilityIdentifier("expense.amount.field")
+                MoneyTextField(
+                    title: settings.t("expense.amount"),
+                    text: $amount,
+                    accessibilityIdentifier: "expense.amount.field"
+                )
 
                 DatePicker(
                     settings.language == .spanish ? "Fecha" : "Date",

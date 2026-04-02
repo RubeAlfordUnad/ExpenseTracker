@@ -6,7 +6,10 @@ struct ExpenseHistoryView: View {
     @EnvironmentObject var settings: AppSettings
 
     @Binding var expenses: [Expense]
-    let onPersist: () -> Void
+    @Binding var incomes: [Income]
+
+    let onPersistExpenses: () -> Void
+    let onPersistIncomes: () -> Void
 
     @State private var selectedYear = Calendar.current.component(.year, from: Date())
     @State private var selectedMonth = Calendar.current.component(.month, from: Date())
@@ -17,7 +20,8 @@ struct ExpenseHistoryView: View {
     @State private var searchText = ""
 
     @State private var editingExpense: Expense?
-    @State private var expensePendingDelete: Expense?
+    @State private var editingIncome: Income?
+    @State private var pendingDelete: PendingDelete?
 
     @State private var exportDocument = ExportFileDocument()
     @State private var exportContentType: UTType = .json
@@ -38,15 +42,42 @@ struct ExpenseHistoryView: View {
         var id: String { rawValue }
     }
 
+    private enum PendingDelete {
+        case expense(Expense)
+        case income(Income)
+    }
+
+    private enum EntryKind {
+        case expense
+        case income
+    }
+
+    private struct LedgerEntry: Identifiable {
+        let id: UUID
+        let title: String
+        let amount: Double
+        let date: Date
+        let subtitle: String
+        let icon: String
+        let tint: Color
+        let kind: EntryKind
+        let expense: Expense?
+        let income: Income?
+    }
+
     private struct LedgerSection: Identifiable {
         let monthStart: Date
-        let expenses: [Expense]
+        let entries: [LedgerEntry]
 
         var id: Date { monthStart }
     }
 
-    private var availableYears: [Int] {
-        let years = Set(expenses.map { calendar.component(.year, from: $0.date) })
+    private var allYears: [Int] {
+        let years = Set(
+            expenses.map { calendar.component(.year, from: $0.date) }
+            + incomes.map { calendar.component(.year, from: $0.date) }
+        )
+
         let sorted = years.sorted(by: >)
         return sorted.isEmpty ? [calendar.component(.year, from: Date())] : sorted
     }
@@ -60,30 +91,61 @@ struct ExpenseHistoryView: View {
             .sorted { $0.date > $1.date }
     }
 
+    private var selectedMonthIncomes: [Income] {
+        incomes
+            .filter {
+                calendar.component(.year, from: $0.date) == selectedYear &&
+                calendar.component(.month, from: $0.date) == selectedMonth
+            }
+            .sorted { $0.date > $1.date }
+    }
+
     private var selectedYearExpenses: [Expense] {
         expenses
             .filter { calendar.component(.year, from: $0.date) == selectedYear }
             .sorted { $0.date > $1.date }
     }
 
-    private var selectedMonthTotal: Double {
+    private var selectedYearIncomes: [Income] {
+        incomes
+            .filter { calendar.component(.year, from: $0.date) == selectedYear }
+            .sorted { $0.date > $1.date }
+    }
+
+    private var selectedMonthExpenseTotal: Double {
         selectedMonthExpenses.reduce(0) { $0 + $1.amount }
     }
 
-    private var selectedYearTotal: Double {
+    private var selectedMonthIncomeTotal: Double {
+        selectedMonthIncomes.reduce(0) { $0 + $1.amount }
+    }
+
+    private var selectedMonthNet: Double {
+        selectedMonthIncomeTotal - selectedMonthExpenseTotal
+    }
+
+    private var selectedYearExpenseTotal: Double {
         selectedYearExpenses.reduce(0) { $0 + $1.amount }
     }
 
-    private var selectedMonthAverage: Double {
+    private var selectedYearIncomeTotal: Double {
+        selectedYearIncomes.reduce(0) { $0 + $1.amount }
+    }
+
+    private var selectedYearNet: Double {
+        selectedYearIncomeTotal - selectedYearExpenseTotal
+    }
+
+    private var selectedMonthAverageExpense: Double {
         guard !selectedMonthExpenses.isEmpty else { return 0 }
-        return selectedMonthTotal / Double(selectedMonthExpenses.count)
+        return selectedMonthExpenseTotal / Double(selectedMonthExpenses.count)
     }
 
     private var activeMonthsInYearCount: Int {
         yearPoints.filter { $0.total > 0 }.count
     }
 
-    private var previousMonthTotal: Double {
+    private var previousMonthExpenseTotal: Double {
         guard let previousDate = calendar.date(byAdding: .month, value: -1, to: selectedMonthReferenceDate) else {
             return 0
         }
@@ -97,6 +159,26 @@ struct ExpenseHistoryView: View {
                 calendar.component(.month, from: $0.date) == previousMonth
             }
             .reduce(0) { $0 + $1.amount }
+    }
+
+    private var previousMonthIncomeTotal: Double {
+        guard let previousDate = calendar.date(byAdding: .month, value: -1, to: selectedMonthReferenceDate) else {
+            return 0
+        }
+
+        let previousYear = calendar.component(.year, from: previousDate)
+        let previousMonth = calendar.component(.month, from: previousDate)
+
+        return incomes
+            .filter {
+                calendar.component(.year, from: $0.date) == previousYear &&
+                calendar.component(.month, from: $0.date) == previousMonth
+            }
+            .reduce(0) { $0 + $1.amount }
+    }
+
+    private var previousMonthNet: Double {
+        previousMonthIncomeTotal - previousMonthExpenseTotal
     }
 
     private var dominantCategory: Category? {
@@ -125,13 +207,29 @@ struct ExpenseHistoryView: View {
     }
 
     private var monthStripData: [HistoryMonthData] {
-        yearPoints.map {
-            HistoryMonthData(
-                id: $0.month,
-                month: $0.month,
-                label: $0.label,
-                total: $0.total,
-                hasExpenses: $0.total > 0
+        (1...12).map { month in
+            let expensesTotal = expenses
+                .filter {
+                    calendar.component(.year, from: $0.date) == selectedYear &&
+                    calendar.component(.month, from: $0.date) == month
+                }
+                .reduce(0) { $0 + $1.amount }
+
+            let incomesTotal = incomes
+                .filter {
+                    calendar.component(.year, from: $0.date) == selectedYear &&
+                    calendar.component(.month, from: $0.date) == month
+                }
+                .reduce(0) { $0 + $1.amount }
+
+            let movementTotal = expensesTotal + incomesTotal
+
+            return HistoryMonthData(
+                id: month,
+                month: month,
+                label: monthShortLabel(month),
+                total: movementTotal,
+                hasExpenses: movementTotal > 0
             )
         }
     }
@@ -145,87 +243,86 @@ struct ExpenseHistoryView: View {
     }
 
     private var monthVsPreviousText: String {
-        if previousMonthTotal == 0, selectedMonthTotal > 0 {
-            return settings.language == .spanish
-            ? "Nuevo movimiento frente al mes anterior"
-            : "Fresh activity compared to previous month"
-        }
+        let delta = selectedMonthNet - previousMonthNet
 
-        if previousMonthTotal == 0 {
+        if previousMonthNet == 0, selectedMonthNet == 0 {
             return settings.language == .spanish
             ? "Sin comparación disponible"
             : "No comparison available"
         }
 
-        let delta = selectedMonthTotal - previousMonthTotal
-        let percentage = abs(delta / previousMonthTotal) * 100
+        if previousMonthNet == 0 {
+            return settings.language == .spanish
+            ? "Nuevo balance frente al mes anterior"
+            : "New balance versus previous month"
+        }
 
         if delta > 0 {
             return settings.language == .spanish
-            ? "\(Int(percentage))% más que el mes anterior"
-            : "\(Int(percentage))% more than previous month"
-        } else if delta < 0 {
-            return settings.language == .spanish
-            ? "\(Int(percentage))% menos que el mes anterior"
-            : "\(Int(percentage))% less than previous month"
-        } else {
-            return settings.language == .spanish
-            ? "Igual que el mes anterior"
-            : "Same as previous month"
+            ? "Mejoraste tu balance en \(settings.formatCurrency(delta, decimals: 0)) frente al mes anterior"
+            : "Your balance improved by \(settings.formatCurrency(delta, decimals: 0)) versus previous month"
         }
+
+        if delta < 0 {
+            return settings.language == .spanish
+            ? "Tu balance cayó \(settings.formatCurrency(abs(delta), decimals: 0)) frente al mes anterior"
+            : "Your balance dropped by \(settings.formatCurrency(abs(delta), decimals: 0)) versus previous month"
+        }
+
+        return settings.language == .spanish
+        ? "Mismo balance que el mes anterior"
+        : "Same balance as previous month"
     }
 
     private var monthVsPreviousColor: Color {
-        if previousMonthTotal == 0, selectedMonthTotal > 0 { return .blue }
-        if selectedMonthTotal > previousMonthTotal { return .red }
-        if selectedMonthTotal < previousMonthTotal { return .green }
+        if selectedMonthNet > previousMonthNet { return .green }
+        if selectedMonthNet < previousMonthNet { return .red }
         return .secondary
     }
 
     private var comparisonHeadline: String {
-        if selectedMonthExpenses.isEmpty {
+        if selectedMonthEntries.isEmpty {
             return settings.language == .spanish
             ? "Este mes está vacío"
             : "This month is empty"
         }
 
-        if previousMonthTotal == 0, selectedMonthTotal > 0 {
+        if selectedMonthNet > 0 {
             return settings.language == .spanish
-            ? "Mes con actividad nueva"
-            : "Month with new activity"
+            ? "Mes con balance positivo"
+            : "Month with positive balance"
         }
 
-        if selectedMonthTotal > previousMonthTotal {
+        if selectedMonthNet < 0 {
             return settings.language == .spanish
-            ? "Mes más pesado"
-            : "Heavier month"
-        } else if selectedMonthTotal < previousMonthTotal {
-            return settings.language == .spanish
-            ? "Mes más controlado"
-            : "More controlled month"
-        } else {
-            return settings.language == .spanish
-            ? "Mes estable"
-            : "Stable month"
+            ? "Mes con balance apretado"
+            : "Month with tight balance"
         }
+
+        return settings.language == .spanish
+        ? "Mes equilibrado"
+        : "Balanced month"
     }
 
-    private var filteredLedgerExpenses: [Expense] {
-        let filteredByYearAndMonth = expenses.filter { expense in
-            let yearMatches = selectedLedgerYear == 0 || calendar.component(.year, from: expense.date) == selectedLedgerYear
-            let monthMatches = selectedLedgerMonth == 0 || calendar.component(.month, from: expense.date) == selectedLedgerMonth
+    private var selectedMonthEntries: [LedgerEntry] {
+        ledgerEntries(from: selectedMonthExpenses, incomes: selectedMonthIncomes)
+    }
+
+    private var filteredLedgerEntries: [LedgerEntry] {
+        let filteredByYearAndMonth = ledgerEntries(from: expenses, incomes: incomes).filter { entry in
+            let yearMatches = selectedLedgerYear == 0 || calendar.component(.year, from: entry.date) == selectedLedgerYear
+            let monthMatches = selectedLedgerMonth == 0 || calendar.component(.month, from: entry.date) == selectedLedgerMonth
             return yearMatches && monthMatches
         }
 
         let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let searched = filteredByYearAndMonth.filter { expense in
+        let searched = filteredByYearAndMonth.filter { entry in
             guard !trimmedSearch.isEmpty else { return true }
 
-            let categoryName = expense.category.displayName(language: settings.language)
-            return expense.title.localizedCaseInsensitiveContains(trimmedSearch)
-            || categoryName.localizedCaseInsensitiveContains(trimmedSearch)
-            || settings.shortDateString(from: expense.date).localizedCaseInsensitiveContains(trimmedSearch)
+            return entry.title.localizedCaseInsensitiveContains(trimmedSearch)
+            || entry.subtitle.localizedCaseInsensitiveContains(trimmedSearch)
+            || settings.shortDateString(from: entry.date).localizedCaseInsensitiveContains(trimmedSearch)
         }
 
         return searched.sorted { lhs, rhs in
@@ -238,25 +335,37 @@ struct ExpenseHistoryView: View {
     }
 
     private var ledgerSections: [LedgerSection] {
-        let grouped = Dictionary(grouping: filteredLedgerExpenses) { expense in
-            startOfMonth(for: expense.date)
+        let grouped = Dictionary(grouping: filteredLedgerEntries) { entry in
+            startOfMonth(for: entry.date)
         }
 
         return grouped
-            .map { LedgerSection(monthStart: $0.key, expenses: $0.value.sorted { $0.date > $1.date }) }
+            .map { LedgerSection(monthStart: $0.key, entries: $0.value.sorted { $0.date > $1.date }) }
             .sorted { $0.monthStart > $1.monthStart }
     }
 
-    private var filteredLedgerTotal: Double {
-        filteredLedgerExpenses.reduce(0) { $0 + $1.amount }
+    private var filteredLedgerExpenseTotal: Double {
+        filteredLedgerEntries
+            .filter { $0.kind == .expense }
+            .reduce(0) { $0 + $1.amount }
     }
 
-    private var oldestFilteredExpenseDate: Date? {
-        filteredLedgerExpenses.last?.date
+    private var filteredLedgerIncomeTotal: Double {
+        filteredLedgerEntries
+            .filter { $0.kind == .income }
+            .reduce(0) { $0 + $1.amount }
     }
 
-    private var newestFilteredExpenseDate: Date? {
-        filteredLedgerExpenses.first?.date
+    private var filteredLedgerNet: Double {
+        filteredLedgerIncomeTotal - filteredLedgerExpenseTotal
+    }
+
+    private var oldestFilteredEntryDate: Date? {
+        filteredLedgerEntries.last?.date
+    }
+
+    private var newestFilteredEntryDate: Date? {
+        filteredLedgerEntries.first?.date
     }
 
     var body: some View {
@@ -280,17 +389,19 @@ struct ExpenseHistoryView: View {
                         YearlyTrendChartCard(
                             points: yearPoints,
                             selectedMonth: selectedMonth,
-                            annualTotal: selectedYearTotal
+                            annualTotal: selectedYearExpenseTotal
                         )
 
                         if let dominantCategory, !selectedMonthExpenses.isEmpty {
                             dominantCategoryCard(dominantCategory)
                         }
 
-                        if selectedMonthExpenses.isEmpty {
+                        if selectedMonthEntries.isEmpty {
                             emptyOverviewState
                         } else {
-                            ExpensesChartView(expenses: selectedMonthExpenses)
+                            if !selectedMonthExpenses.isEmpty {
+                                ExpensesChartView(expenses: selectedMonthExpenses)
+                            }
                             transactionsSection
                         }
                     } else {
@@ -298,7 +409,14 @@ struct ExpenseHistoryView: View {
                         ledgerFiltersCard
                         ledgerSummaryGrid
 
-                        if filteredLedgerExpenses.isEmpty {
+                        if let newestFilteredEntryDate, let oldestFilteredEntryDate {
+                            dateRangeInfo(
+                                newest: newestFilteredEntryDate,
+                                oldest: oldestFilteredEntryDate
+                            )
+                        }
+
+                        if filteredLedgerEntries.isEmpty {
                             emptyLedgerState
                         } else {
                             ledgerSectionsView
@@ -319,7 +437,7 @@ struct ExpenseHistoryView: View {
                             showImporter = true
                         } label: {
                             Label(
-                                settings.language == .spanish ? "Importar CSV o JSON" : "Import CSV or JSON",
+                                settings.language == .spanish ? "Importar gastos CSV o JSON" : "Import expenses CSV or JSON",
                                 systemImage: "square.and.arrow.down"
                             )
                         }
@@ -330,7 +448,7 @@ struct ExpenseHistoryView: View {
                             prepareExport(.csv)
                         } label: {
                             Label(
-                                settings.language == .spanish ? "Exportar CSV" : "Export CSV",
+                                settings.language == .spanish ? "Exportar gastos CSV" : "Export expenses CSV",
                                 systemImage: "tablecells"
                             )
                         }
@@ -339,7 +457,7 @@ struct ExpenseHistoryView: View {
                             prepareExport(.json)
                         } label: {
                             Label(
-                                settings.language == .spanish ? "Exportar JSON" : "Export JSON",
+                                settings.language == .spanish ? "Exportar gastos JSON" : "Export expenses JSON",
                                 systemImage: "curlybraces"
                             )
                         }
@@ -355,6 +473,12 @@ struct ExpenseHistoryView: View {
             .sheet(item: $editingExpense) { expense in
                 AddExpenseView(existingExpense: expense) { updatedExpense in
                     updateExpense(updatedExpense)
+                }
+                .environmentObject(settings)
+            }
+            .sheet(item: $editingIncome) { income in
+                AddIncomeView(existingIncome: income) { updatedIncome in
+                    updateIncome(updatedIncome)
                 }
                 .environmentObject(settings)
             }
@@ -375,32 +499,25 @@ struct ExpenseHistoryView: View {
                 }
             }
             .alert(
-                settings.language == .spanish ? "Eliminar gasto" : "Delete expense",
+                deleteAlertTitle,
                 isPresented: Binding(
-                    get: { expensePendingDelete != nil },
+                    get: { pendingDelete != nil },
                     set: { newValue in
                         if !newValue {
-                            expensePendingDelete = nil
+                            pendingDelete = nil
                         }
                     }
                 )
             ) {
                 Button(settings.t("common.cancel"), role: .cancel) {
-                    expensePendingDelete = nil
+                    pendingDelete = nil
                 }
 
                 Button(settings.language == .spanish ? "Eliminar" : "Delete", role: .destructive) {
-                    if let expensePendingDelete {
-                        deleteExpense(expensePendingDelete)
-                    }
-                    self.expensePendingDelete = nil
+                    confirmDelete()
                 }
             } message: {
-                Text(
-                    settings.language == .spanish
-                    ? "Se borrará \"\(expensePendingDelete?.title ?? "")\" de forma permanente."
-                    : "\"\(expensePendingDelete?.title ?? "")\" will be permanently removed."
-                )
+                Text(deleteAlertMessage)
             }
             .alert(
                 settings.language == .spanish ? "Importación / exportación" : "Import / export",
@@ -421,6 +538,32 @@ struct ExpenseHistoryView: View {
             } message: {
                 Text(successMessage ?? errorMessage ?? "")
             }
+        }
+    }
+
+    private var deleteAlertTitle: String {
+        switch pendingDelete {
+        case .expense:
+            return settings.language == .spanish ? "Eliminar gasto" : "Delete expense"
+        case .income:
+            return settings.language == .spanish ? "Eliminar ingreso" : "Delete income"
+        case nil:
+            return ""
+        }
+    }
+
+    private var deleteAlertMessage: String {
+        switch pendingDelete {
+        case let .expense(expense):
+            return settings.language == .spanish
+            ? "Se borrará \"\(expense.title)\" de forma permanente."
+            : "\"\(expense.title)\" will be permanently removed."
+        case let .income(income):
+            return settings.language == .spanish
+            ? "Se borrará \"\(income.title)\" de forma permanente."
+            : "\"\(income.title)\" will be permanently removed."
+        case nil:
+            return ""
         }
     }
 
@@ -459,8 +602,8 @@ struct ExpenseHistoryView: View {
 
                     Text(
                         settings.language == .spanish
-                        ? "Mira cómo se mueve tu dinero por mes, cuánto llevas en el año y qué cambió frente al mes anterior."
-                        : "See how your money moves month by month, how much you have spent this year, and what changed versus the previous month."
+                        ? "Ahora puedes ver ingresos y gastos en el mismo mes para entender tu balance real."
+                        : "You can now see income and expenses in the same month to understand your real balance."
                     )
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -488,15 +631,15 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "list.bullet",
                         text: settings.language == .spanish
-                        ? "\(selectedMonthExpenses.count) movimientos"
-                        : "\(selectedMonthExpenses.count) transactions"
+                        ? "\(selectedMonthEntries.count) movimientos"
+                        : "\(selectedMonthEntries.count) transactions"
                     )
 
                     infoPill(
-                        icon: "banknote",
+                        icon: "plusminus",
                         text: settings.language == .spanish
-                        ? "Año: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
-                        : "Year: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
+                        ? "Balance: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
+                        : "Net: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
                     )
                 }
 
@@ -509,15 +652,15 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "list.bullet",
                         text: settings.language == .spanish
-                        ? "\(selectedMonthExpenses.count) movimientos"
-                        : "\(selectedMonthExpenses.count) transactions"
+                        ? "\(selectedMonthEntries.count) movimientos"
+                        : "\(selectedMonthEntries.count) transactions"
                     )
 
                     infoPill(
-                        icon: "banknote",
+                        icon: "plusminus",
                         text: settings.language == .spanish
-                        ? "Año: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
-                        : "Year: \(settings.secureCurrency(selectedYearTotal, decimals: 0))"
+                        ? "Balance: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
+                        : "Net: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
                     )
                 }
             }
@@ -541,8 +684,8 @@ struct ExpenseHistoryView: View {
 
                     Text(
                         settings.language == .spanish
-                        ? "Todos tus gastos, todos tus años"
-                        : "All your expenses, all your years"
+                        ? "Todos tus movimientos, todos tus años"
+                        : "All your movements, all your years"
                     )
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .lineLimit(2)
@@ -551,8 +694,8 @@ struct ExpenseHistoryView: View {
 
                     Text(
                         settings.language == .spanish
-                        ? "Filtra por año o mes, busca movimientos viejos, impórtalos desde Excel en CSV y edítalos cuando quieras."
-                        : "Filter by year or month, search old transactions, import them from Excel as CSV, and edit them anytime."
+                        ? "Filtra por año o mes, busca ingresos y gastos viejos, importa gastos desde CSV y edita todo desde un solo lugar."
+                        : "Filter by year or month, search old income and expenses, import expenses from CSV, and edit everything in one place."
                     )
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -575,15 +718,15 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "calendar.badge.clock",
                         text: settings.language == .spanish
-                        ? "\(availableYears.count) años detectados"
-                        : "\(availableYears.count) years found"
+                        ? "\(allYears.count) años detectados"
+                        : "\(allYears.count) years found"
                     )
 
                     infoPill(
                         icon: "tray.full",
                         text: settings.language == .spanish
-                        ? "\(expenses.count) gastos guardados"
-                        : "\(expenses.count) saved expenses"
+                        ? "\(expenses.count + incomes.count) movimientos guardados"
+                        : "\(expenses.count + incomes.count) saved movements"
                     )
                 }
 
@@ -591,15 +734,15 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "calendar.badge.clock",
                         text: settings.language == .spanish
-                        ? "\(availableYears.count) años detectados"
-                        : "\(availableYears.count) years found"
+                        ? "\(allYears.count) años detectados"
+                        : "\(allYears.count) years found"
                     )
 
                     infoPill(
                         icon: "tray.full",
                         text: settings.language == .spanish
-                        ? "\(expenses.count) gastos guardados"
-                        : "\(expenses.count) saved expenses"
+                        ? "\(expenses.count + incomes.count) movimientos guardados"
+                        : "\(expenses.count + incomes.count) saved movements"
                     )
                 }
             }
@@ -627,7 +770,7 @@ struct ExpenseHistoryView: View {
             Spacer()
 
             Menu {
-                ForEach(availableYears, id: \.self) { year in
+                ForEach(allYears, id: \.self) { year in
                     Button(String(year)) {
                         selectedYear = year
                     }
@@ -663,7 +806,7 @@ struct ExpenseHistoryView: View {
                     .foregroundColor(.secondary)
 
                 TextField(
-                    settings.language == .spanish ? "Buscar gasto, categoría o fecha" : "Search expense, category or date",
+                    settings.language == .spanish ? "Buscar movimiento, categoría o fecha" : "Search movement, category or date",
                     text: $searchText
                 )
                 .textInputAutocapitalization(.never)
@@ -683,7 +826,7 @@ struct ExpenseHistoryView: View {
                         selectedLedgerYear = 0
                     }
 
-                    ForEach(availableYears, id: \.self) { year in
+                    ForEach(allYears, id: \.self) { year in
                         Button(String(year)) {
                             selectedLedgerYear = year
                         }
@@ -720,28 +863,28 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Filtrados" : "Filtered",
-                    value: "\(filteredLedgerExpenses.count)",
+                    value: "\(filteredLedgerEntries.count)",
                     accent: .blue
                 )
 
                 summaryCard(
-                    title: settings.language == .spanish ? "Total filtrado" : "Filtered total",
-                    value: settings.secureCurrency(filteredLedgerTotal, decimals: 0),
-                    accent: .purple
+                    title: settings.language == .spanish ? "Ingresos" : "Income",
+                    value: settings.formatCurrency(filteredLedgerIncomeTotal, decimals: 0),
+                    accent: .green
                 )
             }
 
             HStack(spacing: 12) {
                 summaryCard(
-                    title: settings.language == .spanish ? "Más reciente" : "Most recent",
-                    value: newestFilteredExpenseDate.map { settings.shortDateString(from: $0) } ?? "—",
-                    accent: .green
+                    title: settings.language == .spanish ? "Gastos" : "Expenses",
+                    value: settings.formatCurrency(filteredLedgerExpenseTotal, decimals: 0),
+                    accent: .red
                 )
 
                 summaryCard(
-                    title: settings.language == .spanish ? "Más antiguo" : "Oldest",
-                    value: oldestFilteredExpenseDate.map { settings.shortDateString(from: $0) } ?? "—",
-                    accent: .orange
+                    title: settings.language == .spanish ? "Balance" : "Net",
+                    value: settings.formatCurrency(filteredLedgerNet, decimals: 0),
+                    accent: filteredLedgerNet >= 0 ? .green : .orange
                 )
             }
         }
@@ -751,29 +894,43 @@ struct ExpenseHistoryView: View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
                 summaryCard(
-                    title: settings.language == .spanish ? "Total del mes" : "Month total",
-                    value: settings.secureCurrency(selectedMonthTotal, decimals: 0),
-                    accent: .blue
+                    title: settings.language == .spanish ? "Ingresos del mes" : "Month income",
+                    value: settings.formatCurrency(selectedMonthIncomeTotal, decimals: 0),
+                    accent: .green
                 )
 
                 summaryCard(
-                    title: settings.language == .spanish ? "Pagado en el año" : "Paid this year",
-                    value: settings.secureCurrency(selectedYearTotal, decimals: 0),
-                    accent: .purple
+                    title: settings.language == .spanish ? "Gastos del mes" : "Month expenses",
+                    value: settings.formatCurrency(selectedMonthExpenseTotal, decimals: 0),
+                    accent: .red
                 )
             }
 
             HStack(spacing: 12) {
                 summaryCard(
-                    title: settings.language == .spanish ? "Promedio del mes" : "Month average",
-                    value: settings.secureCurrency(selectedMonthAverage, decimals: 0),
+                    title: settings.language == .spanish ? "Balance del mes" : "Month net",
+                    value: settings.formatCurrency(selectedMonthNet, decimals: 0),
+                    accent: selectedMonthNet >= 0 ? .green : .orange
+                )
+
+                summaryCard(
+                    title: settings.language == .spanish ? "Balance del año" : "Year net",
+                    value: settings.formatCurrency(selectedYearNet, decimals: 0),
+                    accent: selectedYearNet >= 0 ? .blue : .orange
+                )
+            }
+
+            HStack(spacing: 12) {
+                summaryCard(
+                    title: settings.language == .spanish ? "Promedio de gastos" : "Expense average",
+                    value: settings.formatCurrency(selectedMonthAverageExpense, decimals: 0),
                     accent: .pink
                 )
 
                 summaryCard(
                     title: settings.language == .spanish ? "Meses activos" : "Active months",
                     value: "\(activeMonthsInYearCount)/12",
-                    accent: .green
+                    accent: .purple
                 )
             }
         }
@@ -782,7 +939,7 @@ struct ExpenseHistoryView: View {
     private var comparisonCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: selectedMonthExpenses.isEmpty ? "moon.zzz.fill" : "arrow.left.arrow.right.circle.fill")
+                Image(systemName: selectedMonthEntries.isEmpty ? "moon.zzz.fill" : "arrow.left.arrow.right.circle.fill")
                     .foregroundColor(monthVsPreviousColor)
 
                 Text(comparisonHeadline)
@@ -795,18 +952,16 @@ struct ExpenseHistoryView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
-            if previousMonthTotal > 0 {
-                HStack {
-                    Text(settings.language == .spanish ? "Mes anterior" : "Previous month")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+            HStack {
+                Text(settings.language == .spanish ? "Mes anterior" : "Previous month")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
 
-                    Spacer()
+                Spacer()
 
-                    Text(settings.secureCurrency(previousMonthTotal, decimals: 0))
-                        .font(.caption.bold())
-                        .foregroundColor(.secondary)
-                }
+                Text(settings.formatCurrency(previousMonthNet, decimals: 0))
+                    .font(.caption.bold())
+                    .foregroundColor(.secondary)
             }
         }
         .padding(18)
@@ -830,7 +985,7 @@ struct ExpenseHistoryView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(settings.language == .spanish ? "Categoría más pesada" : "Heaviest category")
+                Text(settings.language == .spanish ? "Categoría que más pesa" : "Heaviest expense category")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
@@ -854,12 +1009,12 @@ struct ExpenseHistoryView: View {
             Text(
                 settings.language == .spanish
                 ? "Movimientos de \(monthFullLabel(selectedMonth))"
-                : "\(monthFullLabel(selectedMonth)) transactions"
+                : "\(monthFullLabel(selectedMonth)) movements"
             )
             .font(.headline)
 
-            ForEach(selectedMonthExpenses) { expense in
-                expenseRow(expense)
+            ForEach(selectedMonthEntries) { entry in
+                entryRow(entry)
             }
         }
     }
@@ -874,7 +1029,7 @@ struct ExpenseHistoryView: View {
 
                         Spacer()
 
-                        Text("\(section.expenses.count)")
+                        Text("\(section.entries.count)")
                             .font(.caption.bold())
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 10)
@@ -883,8 +1038,8 @@ struct ExpenseHistoryView: View {
                             .clipShape(Capsule())
                     }
 
-                    ForEach(section.expenses) { expense in
-                        expenseRow(expense)
+                    ForEach(section.entries) { entry in
+                        entryRow(entry)
                     }
                 }
             }
@@ -900,14 +1055,14 @@ struct ExpenseHistoryView: View {
             Text(
                 settings.language == .spanish
                 ? "No hay movimientos en este mes"
-                : "No transactions in this month"
+                : "No movements in this month"
             )
             .font(.headline)
 
             Text(
                 settings.language == .spanish
-                ? "Cambia de mes o agrega nuevos gastos. El gráfico anual sigue mostrando el ritmo del año completo."
-                : "Switch months or add new expenses. The yearly chart still shows the rhythm of the full year."
+                ? "Cambia de mes o agrega ingresos y gastos nuevos. El gráfico anual sigue mostrando el ritmo de tus gastos del año completo."
+                : "Switch months or add new income and expenses. The yearly chart still shows the rhythm of your annual spending."
             )
             .font(.subheadline)
             .foregroundColor(.secondary)
@@ -939,8 +1094,8 @@ struct ExpenseHistoryView: View {
 
             Text(
                 settings.language == .spanish
-                ? "Prueba otro año, otro mes o importa un CSV exportado desde Excel."
-                : "Try another year, another month, or import a CSV exported from Excel."
+                ? "Prueba otro año, otro mes o importa un CSV de gastos exportado desde Excel."
+                : "Try another year, another month, or import an expenses CSV exported from Excel."
             )
             .font(.subheadline)
             .foregroundColor(.secondary)
@@ -957,22 +1112,22 @@ struct ExpenseHistoryView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private func expenseRow(_ expense: Expense) -> some View {
+    private func entryRow(_ entry: LedgerEntry) -> some View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(expense.category.color.opacity(0.15))
+                    .fill(entry.tint.opacity(0.15))
                     .frame(width: 44, height: 44)
 
-                Image(systemName: expense.category.icon)
-                    .foregroundColor(expense.category.color)
+                Image(systemName: entry.icon)
+                    .foregroundColor(entry.tint)
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(expense.title)
+                Text(entry.title)
                     .font(.subheadline.bold())
 
-                Text(expense.category.displayName(language: settings.language))
+                Text(entry.subtitle)
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -980,31 +1135,54 @@ struct ExpenseHistoryView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(settings.secureCurrency(expense.amount, decimals: 0))
+                Text(amountLabel(for: entry))
                     .font(.subheadline.bold())
+                    .foregroundColor(entry.kind == .income ? .green : .primary)
 
-                Text(expense.date.formatted(date: .abbreviated, time: .omitted))
+                Text(entry.date.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
 
             Menu {
-                Button {
-                    editingExpense = expense
-                } label: {
-                    Label(
-                        settings.language == .spanish ? "Editar" : "Edit",
-                        systemImage: "square.and.pencil"
-                    )
+                if let expense = entry.expense {
+                    Button {
+                        editingExpense = expense
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Editar gasto" : "Edit expense",
+                            systemImage: "square.and.pencil"
+                        )
+                    }
+
+                    Button(role: .destructive) {
+                        pendingDelete = .expense(expense)
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Eliminar gasto" : "Delete expense",
+                            systemImage: "trash"
+                        )
+                    }
                 }
 
-                Button(role: .destructive) {
-                    expensePendingDelete = expense
-                } label: {
-                    Label(
-                        settings.language == .spanish ? "Eliminar" : "Delete",
-                        systemImage: "trash"
-                    )
+                if let income = entry.income {
+                    Button {
+                        editingIncome = income
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Editar ingreso" : "Edit income",
+                            systemImage: "square.and.pencil"
+                        )
+                    }
+
+                    Button(role: .destructive) {
+                        pendingDelete = .income(income)
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Eliminar ingreso" : "Delete income",
+                            systemImage: "trash"
+                        )
+                    }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -1020,6 +1198,34 @@ struct ExpenseHistoryView: View {
                 .stroke(BrandPalette.stroke, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func amountLabel(for entry: LedgerEntry) -> String {
+        let formatted = settings.formatCurrency(entry.amount, decimals: 0)
+        switch entry.kind {
+        case .expense:
+            return "−\(formatted)"
+        case .income:
+            return "+\(formatted)"
+        }
+    }
+
+    private func dateRangeInfo(newest: Date, oldest: Date) -> some View {
+        HStack(spacing: 8) {
+            infoPill(
+                icon: "clock.badge.checkmark",
+                text: settings.language == .spanish
+                ? "Más reciente: \(settings.shortDateString(from: newest))"
+                : "Newest: \(settings.shortDateString(from: newest))"
+            )
+
+            infoPill(
+                icon: "clock.arrow.circlepath",
+                text: settings.language == .spanish
+                ? "Más antiguo: \(settings.shortDateString(from: oldest))"
+                : "Oldest: \(settings.shortDateString(from: oldest))"
+            )
+        }
     }
 
     private func summaryCard(title: String, value: String, accent: Color) -> some View {
@@ -1093,16 +1299,16 @@ struct ExpenseHistoryView: View {
         let currentYear = calendar.component(.year, from: Date())
         let currentMonth = calendar.component(.month, from: Date())
 
-        if availableYears.contains(currentYear) {
+        if allYears.contains(currentYear) {
             selectedYear = currentYear
         } else {
-            selectedYear = availableYears.first ?? currentYear
+            selectedYear = allYears.first ?? currentYear
         }
 
         if selectedYear == currentYear {
             selectedMonth = currentMonth
         } else {
-            let latestMonthWithData = selectedYearExpenses
+            let latestMonthWithData = selectedYearEntries
                 .map { calendar.component(.month, from: $0.date) }
                 .max()
 
@@ -1110,8 +1316,12 @@ struct ExpenseHistoryView: View {
         }
     }
 
+    private var selectedYearEntries: [LedgerEntry] {
+        ledgerEntries(from: selectedYearExpenses, incomes: selectedYearIncomes)
+    }
+
     private func normalizeLedgerFiltersIfNeeded() {
-        if selectedLedgerYear != 0 && !availableYears.contains(selectedLedgerYear) {
+        if selectedLedgerYear != 0 && !allYears.contains(selectedLedgerYear) {
             selectedLedgerYear = 0
         }
 
@@ -1127,16 +1337,48 @@ struct ExpenseHistoryView: View {
 
         expenses[index] = updatedExpense
         expenses.sort { $0.date > $1.date }
-        onPersist()
+        onPersistExpenses()
+        configureInitialSelection()
+        normalizeLedgerFiltersIfNeeded()
+    }
+
+    private func updateIncome(_ updatedIncome: Income) {
+        guard let index = incomes.firstIndex(where: { $0.id == updatedIncome.id }) else {
+            return
+        }
+
+        incomes[index] = updatedIncome
+        incomes.sort { $0.date > $1.date }
+        onPersistIncomes()
         configureInitialSelection()
         normalizeLedgerFiltersIfNeeded()
     }
 
     private func deleteExpense(_ expense: Expense) {
         expenses.removeAll { $0.id == expense.id }
-        onPersist()
+        onPersistExpenses()
         configureInitialSelection()
         normalizeLedgerFiltersIfNeeded()
+    }
+
+    private func deleteIncome(_ income: Income) {
+        incomes.removeAll { $0.id == income.id }
+        onPersistIncomes()
+        configureInitialSelection()
+        normalizeLedgerFiltersIfNeeded()
+    }
+
+    private func confirmDelete() {
+        defer { pendingDelete = nil }
+
+        switch pendingDelete {
+        case let .expense(expense):
+            deleteExpense(expense)
+        case let .income(income):
+            deleteIncome(income)
+        case nil:
+            break
+        }
     }
 
     private func prepareExport(_ format: ExpensesTransferFormat) {
@@ -1158,7 +1400,6 @@ struct ExpenseHistoryView: View {
         switch result {
         case let .success(url):
             importExpenses(from: url)
-
         case let .failure(error):
             errorMessage = error.localizedDescription
         }
@@ -1179,11 +1420,12 @@ struct ExpenseHistoryView: View {
             let importResult = try transferService.importExpenses(from: data, contentType: contentType)
 
             let mergeResult = mergeImportedExpenses(importResult.expenses)
-            onPersist()
+            onPersistExpenses()
             configureInitialSelection()
             normalizeLedgerFiltersIfNeeded()
 
             successMessage = makeImportSummary(
+                totalRows: importResult.totalRows,
                 importedRows: importResult.importedRows,
                 insertedRows: mergeResult.inserted,
                 duplicateRows: mergeResult.duplicates,
@@ -1231,6 +1473,7 @@ struct ExpenseHistoryView: View {
     }
 
     private func makeImportSummary(
+        totalRows: Int,
         importedRows: Int,
         insertedRows: Int,
         duplicateRows: Int,
@@ -1240,7 +1483,8 @@ struct ExpenseHistoryView: View {
             return """
             Importación terminada.
 
-            Filas leídas: \(importedRows)
+            Filas leídas: \(totalRows)
+            Filas válidas importadas: \(importedRows)
             Nuevos gastos agregados: \(insertedRows)
             Duplicados omitidos: \(duplicateRows)
             Filas inválidas omitidas: \(skippedRows)
@@ -1249,7 +1493,8 @@ struct ExpenseHistoryView: View {
             return """
             Import finished.
 
-            Rows read: \(importedRows)
+            Rows read: \(totalRows)
+            Valid rows imported: \(importedRows)
             New expenses added: \(insertedRows)
             Duplicates skipped: \(duplicateRows)
             Invalid rows skipped: \(skippedRows)
@@ -1272,5 +1517,46 @@ struct ExpenseHistoryView: View {
         let formatter = DateFormatter()
         formatter.locale = settings.appLocale
         return formatter.monthSymbols[month - 1].capitalized
+    }
+
+    private func ledgerEntries(from expenses: [Expense], incomes: [Income]) -> [LedgerEntry] {
+        let expenseEntries = expenses.map { expense in
+            LedgerEntry(
+                id: expense.id,
+                title: expense.title,
+                amount: expense.amount,
+                date: expense.date,
+                subtitle: expense.category.displayName(language: settings.language),
+                icon: expense.category.icon,
+                tint: expense.category.color,
+                kind: .expense,
+                expense: expense,
+                income: nil
+            )
+        }
+
+        let incomeEntries = incomes.map { income in
+            LedgerEntry(
+                id: income.id,
+                title: income.title,
+                amount: income.amount,
+                date: income.date,
+                subtitle: income.category.displayName(language: settings.language),
+                icon: income.category.icon,
+                tint: income.category.color,
+                kind: .income,
+                expense: nil,
+                income: income
+            )
+        }
+
+        return (expenseEntries + incomeEntries)
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date {
+                    return lhs.date > rhs.date
+                }
+
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
     }
 }

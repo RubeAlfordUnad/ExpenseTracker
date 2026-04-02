@@ -4,7 +4,6 @@ struct PrivacyPolicyView: View {
 
     @EnvironmentObject var settings: AppSettings
 
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -20,6 +19,7 @@ struct PrivacyPolicyView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("privacy.openWebsite")
                     } else {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(settings.t("privacy.urlPending"))
@@ -28,27 +28,31 @@ struct PrivacyPolicyView: View {
 
                             Text(
                                 settings.language == .spanish
-                                ? "Antes de publicar en App Store necesitas subir esta política a una URL pública."
-                                : "Before publishing on the App Store, you need to host this policy at a public URL."
+                                ? "Antes de publicar, reemplaza la URL vacía por la URL pública real de tu política."
+                                : "Before publishing, replace the empty URL with the real public URL of your policy."
                             )
                             .font(.caption)
                             .foregroundColor(.secondary)
                         }
                     }
 
-                    Link(destination: URL(string: "mailto:\(AppMetadata.supportEmail)")!) {
-                        Label(
-                            settings.language == .spanish ? "Contactar soporte" : "Contact support",
-                            systemImage: "envelope"
-                        )
-                        .frame(maxWidth: .infinity)
+                    if let supportEmailURL = AppMetadata.supportEmailURL {
+                        Link(destination: supportEmailURL) {
+                            Label(
+                                settings.language == .spanish ? "Contactar soporte" : "Contact support",
+                                systemImage: "envelope"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .accessibilityIdentifier("privacy.contactSupport")
                     }
-                    .buttonStyle(.bordered)
                 }
             }
             .padding(20)
         }
         .background(Color(.systemBackground))
+        .accessibilityIdentifier("privacy.screen")
         .navigationTitle(settings.t("privacy.title"))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -57,47 +61,48 @@ struct PrivacyPolicyView: View {
         switch settings.language {
         case .spanish:
             return """
-            Última actualización: 29 de marzo de 2026
+            \(AppMetadata.legalLastUpdatedLine(for: .spanish))
 
             1. Quiénes somos
-            Nexora es una aplicación de organización financiera personal diseñada para ayudarte a registrar gastos, deudas, pagos fijos y presupuesto desde tu propio dispositivo.
+            \(AppMetadata.displayName) es una aplicación de organización financiera personal diseñada para ayudarte a registrar gastos, ingresos, deudas, pagos recurrentes y presupuestos desde tu propio dispositivo.
 
-            2. Qué datos puedes guardar en la app
+            2. Qué datos puede guardar la app
             La app puede almacenar información que tú introduces directamente, como:
             - nombre de usuario de tu cuenta local
             - contraseña local protegida en Keychain
-            - gastos, deudas y pagos recurrentes
+            - gastos, ingresos, deudas y pagos recurrentes
             - presupuesto mensual
-            - preferencias de idioma, tema, país y moneda
-            - foto de perfil
+            - preferencias de idioma, tema, región y moneda
+            - imagen y nombre de perfil
             - preferencias de notificaciones
 
-            3. Cómo se usan esos datos
-            Los datos se usan únicamente para que la app funcione, por ejemplo:
+            3. Para qué se usan los datos
+            Los datos se usan únicamente para ofrecer las funciones principales de la app, incluyendo:
             - registrar movimientos
             - mostrar resúmenes y tendencias
-            - organizar deudas y pagos fijos
+            - organizar deudas y pagos recurrentes
             - personalizar la experiencia
-            - programar recordatorios y alertas locales
+            - programar recordatorios locales y alertas de presupuesto
 
-            4. Dónde se almacenan los datos
-            En la versión actual, la mayor parte de la información se almacena localmente en tu dispositivo.
-            Nexora no vende tus datos personales ni los comparte con fines publicitarios.
+            4. Dónde se guardan los datos
+            En la versión actual, la mayor parte de la información se guarda localmente en tu dispositivo.
+            \(AppMetadata.displayName) no vende tus datos personales ni los comparte con fines publicitarios.
 
             5. Servicios externos
-            Si usas la función de tipo de cambio, la app puede consultar un servicio externo para obtener tasas entre monedas. En esa solicitud pueden enviarse la moneda base y la moneda destino seleccionadas por el usuario. Esa función no es necesaria para registrar tus gastos locales.
+            Si usas la función de tipo de cambio, la app puede consultar un servicio externo para obtener tasas de conversión. Esa solicitud puede incluir la moneda base y la moneda objetivo seleccionadas por el usuario. Esta función es opcional.
 
             6. Permisos del dispositivo
-            Nexora puede solicitar:
-            - acceso a Fotos, para elegir una imagen de perfil
-            - acceso a Notificaciones, para recordatorios de pagos y alertas de presupuesto
+            \(AppMetadata.displayName) puede solicitar:
+            - acceso a notificaciones, para recordatorios de pagos y alertas de presupuesto
+            - autenticación biométrica, para proteger el acceso a la app cuando lo habilitas
+            - acceso a fotos, si eliges una imagen de perfil
 
-            7. Cuenta y eliminación de datos
-            Puedes eliminar tu cuenta local y los datos asociados desde la sección Perfil dentro de la app.
-            Al eliminar la cuenta, se borran los datos locales asociados a ese usuario en este dispositivo, incluyendo gastos, deudas, pagos fijos, presupuesto, imagen de perfil y preferencias guardadas para esa cuenta.
+            7. Eliminación de cuenta y datos
+            Puedes eliminar tu cuenta local y sus datos asociados desde la sección Perfil dentro de la app.
+            Al eliminar la cuenta se borran los datos locales asociados a ese usuario en ese dispositivo.
 
             8. Menores de edad
-            Nexora no está dirigida intencionalmente a menores de 13 años.
+            \(AppMetadata.displayName) no está dirigida intencionalmente a menores de 13 años.
 
             9. Cambios a esta política
             Esta política puede actualizarse cuando cambien funciones, flujos de datos o requisitos legales.
@@ -110,19 +115,19 @@ struct PrivacyPolicyView: View {
 
         case .english:
             return """
-            Last updated: March 29, 2026
+            \(AppMetadata.legalLastUpdatedLine(for: .english))
 
             1. Who we are
-            Nexora is a personal finance organization app designed to help you track expenses, debts, recurring payments, and budgets directly on your device.
+            \(AppMetadata.displayName) is a personal finance organization app designed to help you track expenses, income, debts, recurring payments, and budgets directly on your device.
 
             2. What data may be stored in the app
             The app may store information you provide directly, such as:
             - local account username
             - local password protected in Keychain
-            - expenses, debts, and recurring payments
+            - expenses, income, debts, and recurring payments
             - monthly budget
-            - language, theme, country, and currency preferences
-            - profile photo
+            - language, theme, region, and currency preferences
+            - profile image and display name
             - notification preferences
 
             3. How data is used
@@ -135,22 +140,23 @@ struct PrivacyPolicyView: View {
 
             4. Where data is stored
             In the current version, most information is stored locally on your device.
-            Nexora does not sell your personal data or share it for advertising purposes.
+            \(AppMetadata.displayName) does not sell your personal data or share it for advertising purposes.
 
             5. External services
-            If you use the exchange rate feature, the app may contact an external service to fetch currency conversion rates. That request may include the base currency and target currency selected by the user. This feature is optional and not required to track local expenses.
+            If you use the exchange rate feature, the app may contact an external service to fetch currency conversion rates. That request may include the base currency and target currency selected by the user. This feature is optional.
 
             6. Device permissions
-            Nexora may request:
-            - Photo Library access, to choose a profile image
-            - Notification permission, for payment reminders and budget alerts
+            \(AppMetadata.displayName) may request:
+            - notification permission, for payment reminders and budget alerts
+            - biometric authentication, to protect app access when you enable it
+            - photo access, if you choose a profile image
 
             7. Account and data deletion
             You can delete your local account and associated data from the Profile section inside the app.
-            Deleting the account removes local data associated with that user on this device, including expenses, debts, recurring payments, budget, profile image, and saved preferences for that account.
+            Deleting the account removes local data associated with that user on that device.
 
             8. Children
-            Nexora is not intentionally directed to children under 13.
+            \(AppMetadata.displayName) is not intentionally directed to children under 13.
 
             9. Changes to this policy
             This policy may be updated when app features, data flows, or legal requirements change.

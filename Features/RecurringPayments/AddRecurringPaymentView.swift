@@ -1,8 +1,7 @@
 import SwiftUI
 
 struct AddRecurringPaymentView: View {
-
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.dismiss) private var dismiss
     @EnvironmentObject var settings: AppSettings
 
     @State private var title: String
@@ -10,7 +9,9 @@ struct AddRecurringPaymentView: View {
     @State private var dueDay: Int
     @State private var category: RecurringPaymentCategory
     @State private var isActive: Bool
+
     @State private var showValidationAlert = false
+    @State private var showDayPickerSheet = false
 
     let existingPayment: RecurringPayment?
     var onSave: (RecurringPayment) -> Void
@@ -46,32 +47,47 @@ struct AddRecurringPaymentView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField(settings.t("recurring.form.name"), text: $title)
-                    .accessibilityIdentifier("recurring.title.field")
+                Section {
+                    TextField(settings.t("recurring.form.name"), text: $title)
+                        .accessibilityIdentifier("recurring.title.field")
 
-                TextField(settings.t("expense.amount"), text: $amount)
-                    .keyboardType(.decimalPad)
+                    MoneyTextField(
+                        title: settings.t("expense.amount"),
+                        text: $amount,
+                        accessibilityIdentifier: "recurring.amount.field"
+                    )
                     .accessibilityIdentifier("recurring.amount.field")
 
-                Stepper(
-                    settings.tr("recurring.form.day", dueDay),
-                    value: $dueDay,
-                    in: 1...31
-                )
-                .accessibilityIdentifier("recurring.day.stepper")
+                    Button {
+                        showDayPickerSheet = true
+                    } label: {
+                        HStack {
+                            Text(recurringDayLabel)
+                                .foregroundColor(.primary)
 
-                Picker(settings.t("expense.category"), selection: $category) {
-                    ForEach(RecurringPaymentCategory.allCases, id: \.self) { item in
-                        Text(item.displayName(language: settings.language))
+                            Spacer()
+
+                            Text("\(dueDay)")
+                                .foregroundColor(.secondary)
+
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
-                }
-                .accessibilityIdentifier("recurring.category.picker")
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("recurring.day.button")
 
-                Toggle(
-                    settings.language == .spanish ? "Activo" : "Active",
-                    isOn: $isActive
-                )
-                .accessibilityIdentifier("recurring.active.toggle")
+                    Picker(settings.t("expense.category"), selection: $category) {
+                        ForEach(RecurringPaymentCategory.allCases, id: \.self) { item in
+                            Text(item.displayName(language: settings.language))
+                        }
+                    }
+                    .accessibilityIdentifier("recurring.category.picker")
+
+                    Toggle(activeToggleTitle, isOn: $isActive)
+                        .accessibilityIdentifier("recurring.active.toggle")
+                }
 
                 if let validationError {
                     Section {
@@ -81,11 +97,7 @@ struct AddRecurringPaymentView: View {
                     }
                 }
             }
-            .navigationTitle(
-                isEditing
-                ? (settings.language == .spanish ? "Editar pago fijo" : "Edit recurring payment")
-                : settings.t("recurring.form.new")
-            )
+            .navigationTitle(navigationTitle)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(settings.t("common.cancel")) {
@@ -110,8 +122,42 @@ struct AddRecurringPaymentView: View {
             } message: {
                 Text(validationError?.message(language: settings.language) ?? "")
             }
+            .sheet(isPresented: $showDayPickerSheet) {
+                recurringDayPickerSheet
+            }
         }
         .accessibilityIdentifier("recurring.sheet")
+    }
+
+    private var recurringDayPickerSheet: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                Picker(recurringDayLabel, selection: $dueDay) {
+                    ForEach(1...31, id: \.self) { day in
+                        Text(dayTitle(for: day)).tag(day)
+                    }
+                }
+                .pickerStyle(.wheel)
+                .labelsHidden()
+            }
+            .navigationTitle(recurringDayLabel)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(settings.t("common.cancel")) {
+                        showDayPickerSheet = false
+                    }
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(settings.t("common.save")) {
+                        showDayPickerSheet = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.height(300)])
+        .presentationDragIndicator(.visible)
     }
 
     private func saveRecurringPayment() {
@@ -140,13 +186,35 @@ struct AddRecurringPaymentView: View {
         dismiss()
     }
 
+    private var navigationTitle: String {
+        if isEditing {
+            return settings.language == .spanish
+                ? "Editar pago fijo"
+                : "Edit recurring payment"
+        }
+        return settings.t("recurring.form.new")
+    }
+
+    private var recurringDayLabel: String {
+        settings.language == .spanish ? "Día de cobro" : "Due day"
+    }
+
+    private var activeToggleTitle: String {
+        settings.language == .spanish ? "Activo" : "Active"
+    }
+
+    private func dayTitle(for day: Int) -> String {
+        if settings.language == .spanish {
+            return "Día \(day)"
+        }
+        return "Day \(day)"
+    }
+
     private static func makeAmountText(_ value: Double) -> String {
-        if value.rounded() == value {
+        let rounded = value.rounded()
+        if rounded == value {
             return String(Int(value))
         }
-
-        return value.formatted(
-            .number.precision(.fractionLength(0...2))
-        )
+        return String(value)
     }
 }

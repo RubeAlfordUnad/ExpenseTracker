@@ -62,10 +62,9 @@ struct MainTabView: View {
                         selectedPhotoItem: $selectedPhotoItem,
                         profileImageData: $profileImageData,
                         profileDisplayName: profileDisplayName,
-                        showAddExpense: $showAddExpense,
-                        showAddIncome: $showAddIncome,
                         onReloadHomeData: reloadHomeData,
                         onPersistExpenses: persistExpenses,
+                        onPersistIncomes: persistIncomes,
                         onRequestBudgetEdit: openBudgetEditor,
                         onRefreshInsight: refreshInsight,
                         onEvaluateBudgetNotifications: evaluateBudgetNotifications
@@ -87,18 +86,24 @@ struct MainTabView: View {
                             } label: {
                                 Image(systemName: "gearshape")
                             }
+                            .accessibilityIdentifier("main.settings")
 
                             Menu {
                                 Button(addExpenseActionTitle) {
                                     showAddExpense = true
                                 }
+                                .accessibilityIdentifier("main.add.expense")
 
                                 Button(addIncomeActionTitle) {
                                     showAddIncome = true
                                 }
+                                .accessibilityIdentifier("main.add.income")
                             } label: {
-                                Image(systemName: "plus.circle")
+                                Label(settings.language == .spanish ? "Agregar" : "Add", systemImage: "plus.circle")
+                                    .labelStyle(.iconOnly)
                             }
+                            .accessibilityLabel(settings.language == .spanish ? "Agregar" : "Add")
+                            .accessibilityIdentifier("main.add.menu")
                         }
                     }
                     .sheet(isPresented: $showAddExpense) {
@@ -118,8 +123,12 @@ struct MainTabView: View {
                         .environmentObject(settings)
                     }
                     .alert(settings.t("main.editBudgetTitle"), isPresented: $showBudgetEditAlert) {
-                        TextField(settings.t("main.editBudgetPlaceholder"), text: $budgetInput)
-                            .keyboardType(.decimalPad)
+                        MoneyTextField(
+                            title: settings.t("main.editBudgetPlaceholder"),
+                            text: $budgetInput,
+                            accessibilityIdentifier: "main.budgetInput"
+                        )
+                        .keyboardType(.numberPad)
 
                         Button(settings.t("common.cancel"), role: .cancel) { }
 
@@ -171,17 +180,22 @@ struct MainTabView: View {
                     Label(homeTabTitle, systemImage: "house")
                 }
 
-                NavigationStack {
-                    IncomesView(
-                        incomes: $incomes,
-                        onPersist: {
-                            persistIncomes()
-                        }
-                    )
-                    .environmentObject(settings)
-                }
+                ExpenseHistoryView(
+                    expenses: $expenses,
+                    incomes: $incomes,
+                    onPersistExpenses: {
+                        persistExpenses()
+                        refreshInsight()
+                        evaluateBudgetNotifications()
+                    },
+                    onPersistIncomes: {
+                        persistIncomes()
+                        refreshInsight()
+                    }
+                )
+                .environmentObject(settings)
                 .tabItem {
-                    Label(incomesTabTitle, systemImage: "arrow.down.circle")
+                    Label(historyTabTitle, systemImage: "clock.arrow.circlepath")
                 }
 
                 DebtsView()
@@ -394,8 +408,8 @@ struct MainTabView: View {
         settings.language == .spanish ? "Inicio" : "Home"
     }
 
-    private var incomesTabTitle: String {
-        settings.language == .spanish ? "Ingresos" : "Incomes"
+    private var historyTabTitle: String {
+        settings.language == .spanish ? "Historial" : "History"
     }
 
     private var addExpenseActionTitle: String {

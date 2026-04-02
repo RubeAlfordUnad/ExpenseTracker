@@ -218,15 +218,8 @@ struct LoginView: View {
                             : .black.opacity(0.45)
                         )
 
-                    Text(settings.t("login.appName"))
-                        .font(.caption2)
-                        .foregroundColor(
-                            colorScheme == .dark
-                            ? .white.opacity(0.25)
-                            : .black.opacity(0.35)
-                        )
                 }
-                .padding(.bottom, 10)
+                .padding(.bottom, 22)
             }
         }
         .contentShape(Rectangle())
@@ -375,4 +368,4 @@ struct LoginView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
-}   
+}

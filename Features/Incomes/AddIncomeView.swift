@@ -41,12 +41,11 @@ struct AddIncomeView: View {
                 )
                 .accessibilityIdentifier("income.title.field")
 
-                TextField(
-                    settings.language == .spanish ? "Monto" : "Amount",
-                    text: $amount
+                MoneyTextField(
+                    title: settings.language == .spanish ? "Monto" : "Amount",
+                    text: $amount,
+                    accessibilityIdentifier: "income.amount.field"
                 )
-                .keyboardType(.decimalPad)
-                .accessibilityIdentifier("income.amount.field")
 
                 DatePicker(
                     settings.language == .spanish ? "Fecha" : "Date",

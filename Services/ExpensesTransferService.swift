@@ -36,6 +36,7 @@ struct ExpensesTransferPayload {
 
 struct ExpensesImportResult {
     let expenses: [Expense]
+    let totalRows: Int
     let importedRows: Int
     let skippedRows: Int
 }
@@ -47,6 +48,7 @@ enum ExpensesTransferError: LocalizedError {
     case noValidRows
     case encodingFailed
     case decodingFailed
+    case tooManyRows
 
     var errorDescription: String? {
         switch self {
@@ -62,11 +64,15 @@ enum ExpensesTransferError: LocalizedError {
             return "No se pudo generar el archivo."
         case .decodingFailed:
             return "No se pudo leer el archivo."
+        case .tooManyRows:
+            return "El archivo tiene demasiadas filas para importarse de forma segura."
         }
     }
 }
 
 final class ExpensesTransferService {
+
+    private let maximumImportRows = 10_000
 
     func makeExport(from expenses: [Expense], format: ExpensesTransferFormat) throws -> ExpensesTransferPayload {
         switch format {
@@ -86,17 +92,19 @@ final class ExpensesTransferService {
     }
 
     func importExpenses(from data: Data, contentType: UTType?) throws -> ExpensesImportResult {
-        guard !data.isEmpty else {
+        let cleanedData = removeUTF8BOMIfNeeded(from: data)
+
+        guard !cleanedData.isEmpty else {
             throw ExpensesTransferError.emptyInput
         }
 
-        let resolvedFormat = try resolveFormat(from: data, contentType: contentType)
+        let resolvedFormat = try resolveFormat(from: cleanedData, contentType: contentType)
 
         switch resolvedFormat {
         case .json:
-            return try importJSON(from: data)
+            return try importJSON(from: cleanedData)
         case .csv:
-            return try importCSV(from: data)
+            return try importCSV(from: cleanedData)
         }
     }
 
@@ -111,8 +119,7 @@ final class ExpensesTransferService {
             }
         }
 
-        if let text = decodedString(from: data)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
+        if let text = decodedString(from: data)?.trimmingCharacters(in: .whitespacesAndNewlines),
            let first = text.first {
             if first == "[" || first == "{" {
                 return .json
@@ -170,6 +177,7 @@ final class ExpensesTransferService {
         if let decoded = try? isoDecoder.decode([Expense].self, from: data), !decoded.isEmpty {
             return ExpensesImportResult(
                 expenses: decoded,
+                totalRows: decoded.count,
                 importedRows: decoded.count,
                 skippedRows: 0
             )
@@ -186,19 +194,29 @@ final class ExpensesTransferService {
 
             return ExpensesImportResult(
                 expenses: decoded,
+                totalRows: decoded.count,
                 importedRows: decoded.count,
                 skippedRows: 0
             )
+        } catch let error as ExpensesTransferError {
+            throw error
         } catch {
             throw ExpensesTransferError.decodingFailed
         }
     }
 
     private func importCSV(from data: Data) throws -> ExpensesImportResult {
-        guard let text = decodedString(from: data)?
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n") else {
+        guard let rawText = decodedString(from: data) else {
             throw ExpensesTransferError.decodingFailed
+        }
+
+        let text = rawText
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !text.isEmpty else {
+            throw ExpensesTransferError.emptyInput
         }
 
         let lines = text
@@ -210,21 +228,27 @@ final class ExpensesTransferService {
             throw ExpensesTransferError.noValidRows
         }
 
-        let headers = parseCSVLine(lines[0]).map(normalizeHeader)
+        let delimiter = detectDelimiter(in: lines[0])
+        let headers = parseCSVLine(lines[0], delimiter: delimiter).map(normalizeHeader)
 
-        guard let titleIndex = index(in: headers, matchingAny: ["title", "titulo", "título", "name", "concepto"]),
-              let amountIndex = index(in: headers, matchingAny: ["amount", "monto", "valor", "importe"]),
+        guard let titleIndex = index(in: headers, matchingAny: ["title", "titulo", "título", "name", "concepto", "descripcion", "descripción", "description"]),
+              let amountIndex = index(in: headers, matchingAny: ["amount", "monto", "valor", "importe", "price", "precio"]),
               let dateIndex = index(in: headers, matchingAny: ["date", "fecha", "day", "dia", "día"]) else {
             throw ExpensesTransferError.missingRequiredColumns
         }
 
-        let categoryIndex = index(in: headers, matchingAny: ["category", "categoria", "categoría", "type", "tipo"])
+        let categoryIndex = index(in: headers, matchingAny: ["category", "categoria", "categoría", "type", "tipo", "rubro"])
+        let dataLines = Array(lines.dropFirst())
+
+        guard dataLines.count <= maximumImportRows else {
+            throw ExpensesTransferError.tooManyRows
+        }
 
         var importedExpenses: [Expense] = []
         var skippedRows = 0
 
-        for line in lines.dropFirst() {
-            let cells = parseCSVLine(line)
+        for line in dataLines {
+            let cells = parseCSVLine(line, delimiter: delimiter)
 
             let safeTitle = value(at: titleIndex, in: cells)
             let safeAmount = value(at: amountIndex, in: cells)
@@ -256,6 +280,7 @@ final class ExpensesTransferService {
 
         return ExpensesImportResult(
             expenses: importedExpenses,
+            totalRows: dataLines.count,
             importedRows: importedExpenses.count,
             skippedRows: skippedRows
         )
@@ -263,14 +288,23 @@ final class ExpensesTransferService {
 
     private func parseTitle(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+
+        let collapsed = trimmed.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return String(collapsed.prefix(80))
     }
 
     private func parseAmount(_ raw: String) -> Double? {
-        let filtered = raw
+        let compact = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .filter { "0123456789,.-".contains($0) }
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "\u{00A0}", with: "")
+            .replacingOccurrences(of: "\u{202F}", with: "")
 
+        guard !compact.isEmpty else { return nil }
+        guard !compact.contains("-") else { return nil }
+
+        let filtered = compact.filter { "0123456789,.".contains($0) }
         guard !filtered.isEmpty else { return nil }
 
         let commaCount = filtered.filter { $0 == "," }.count
@@ -289,12 +323,13 @@ final class ExpensesTransferService {
             } else {
                 normalized = filtered.replacingOccurrences(of: ",", with: "")
             }
-        } else if commaCount > 1 && dotCount == 0 {
-            normalized = filtered.replacingOccurrences(of: ",", with: "")
-        } else if dotCount > 1 && commaCount == 0 {
-            normalized = filtered.replacingOccurrences(of: ".", with: "")
+        } else if commaCount > 0 {
+            normalized = normalizeSingleSeparatorNumber(filtered, separator: ",")
+                .replacingOccurrences(of: ",", with: ".")
+        } else if dotCount > 0 {
+            normalized = normalizeSingleSeparatorNumber(filtered, separator: ".")
         } else {
-            normalized = filtered.replacingOccurrences(of: ",", with: ".")
+            normalized = filtered
         }
 
         guard let value = Double(normalized), value > 0 else {
@@ -304,6 +339,30 @@ final class ExpensesTransferService {
         return value
     }
 
+    private func normalizeSingleSeparatorNumber(_ raw: String, separator: Character) -> String {
+        let pieces = raw.split(separator: separator, omittingEmptySubsequences: false)
+
+        guard pieces.count > 1 else { return raw }
+
+        let lastDigits = pieces.last?.count ?? 0
+
+        if pieces.count == 2 {
+            if lastDigits == 3 {
+                return raw.replacingOccurrences(of: String(separator), with: "")
+            }
+
+            return raw
+        }
+
+        if lastDigits == 1 || lastDigits == 2 {
+            let decimalPart = String(pieces.last ?? "")
+            let integerPart = pieces.dropLast().joined()
+            return integerPart + String(separator) + decimalPart
+        }
+
+        return raw.replacingOccurrences(of: String(separator), with: "")
+    }
+
     private func parseDate(_ raw: String) -> Date? {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -311,7 +370,7 @@ final class ExpensesTransferService {
 
         if let excelSerial = Double(value), excelSerial > 20_000, excelSerial < 80_000 {
             let excelBaseDate = Date(timeIntervalSince1970: -2209161600) // 1899-12-30
-            return Calendar.current.date(byAdding: .day, value: Int(excelSerial), to: excelBaseDate)
+            return Calendar.current.date(byAdding: .day, value: Int(excelSerial.rounded(.down)), to: excelBaseDate)
         }
 
         let isoFullDate = ISO8601DateFormatter()
@@ -331,19 +390,25 @@ final class ExpensesTransferService {
         let formats = [
             "yyyy-MM-dd",
             "yyyy/MM/dd",
+            "yyyy.MM.dd",
             "dd/MM/yyyy",
             "d/M/yyyy",
-            "MM/dd/yyyy",
-            "M/d/yyyy",
             "dd-MM-yyyy",
             "d-M-yyyy",
+            "dd.MM.yyyy",
+            "MM/dd/yyyy",
+            "M/d/yyyy",
+            "MM-dd-yyyy",
+            "M-d-yyyy",
             "yyyy-MM-dd HH:mm:ss",
-            "dd/MM/yyyy HH:mm:ss"
+            "dd/MM/yyyy HH:mm:ss",
+            "MM/dd/yyyy HH:mm:ss"
         ]
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = .current
+        formatter.isLenient = false
 
         for format in formats {
             formatter.dateFormat = format
@@ -358,29 +423,97 @@ final class ExpensesTransferService {
     private func parseCategory(_ raw: String) -> Category {
         let value = normalizeHeader(raw)
 
-        if value.contains("food") || value.contains("comida") || value.contains("restaurant") || value.contains("restaurante") || value.contains("almuerzo") || value.contains("mercado") {
+        if matchesAnyCategoryToken(value, tokens: ["food", "comida", "restaurant", "restaurante", "almuerzo", "mercado", "grocery", "groceries", "supermercado"]) {
             return .food
         }
 
-        if value.contains("transport") || value.contains("transporte") || value.contains("taxi") || value.contains("uber") || value.contains("gasolina") || value.contains("bus") {
+        if matchesAnyCategoryToken(value, tokens: ["transport", "transporte", "taxi", "uber", "gasolina", "fuel", "bus", "metro"]) {
             return .transport
         }
 
-        if value.contains("entertainment") || value.contains("entretenimiento") || value.contains("ocio") || value.contains("cine") || value.contains("game") || value.contains("stream") {
+        if matchesAnyCategoryToken(value, tokens: ["entertainment", "entretenimiento", "ocio", "cine", "game", "gaming", "stream", "streaming"]) {
             return .entertainment
         }
 
-        if value.contains("bill") || value.contains("factura") || value.contains("servicio") || value.contains("internet") || value.contains("luz") || value.contains("agua") || value.contains("rent") || value.contains("arriendo") {
+        if matchesAnyCategoryToken(value, tokens: ["bill", "bills", "factura", "facturas", "servicio", "servicios", "internet", "luz", "agua", "utilities"]) {
             return .bills
         }
 
+        if matchesAnyCategoryToken(value, tokens: ["housing", "vivienda", "rent", "arriendo", "lease", "mortgage", "hipoteca"]) {
+            return .housing
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["health", "salud", "pharmacy", "farmacia", "medical", "medico", "médico"]) {
+            return .health
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["shopping", "compras", "store", "tienda"]) {
+            return .shopping
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["education", "educacion", "educación", "course", "curso", "school", "escuela"]) {
+            return .education
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["subscription", "subscriptions", "suscripcion", "suscripción", "suscripciones", "netflix", "spotify", "icloud"]) {
+            return .subscriptions
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["personalcare", "cuidadopersonal", "beauty", "belleza", "barber", "barberia", "barbería"]) {
+            return .personalCare
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["travel", "viaje", "viajes", "hotel", "flight", "vuelo"]) {
+            return .travel
+        }
+
+        if matchesAnyCategoryToken(value, tokens: ["gift", "gifts", "regalo", "regalos"]) {
+            return .gifts
+        }
+
         return .other
+    }
+
+    private func matchesAnyCategoryToken(_ value: String, tokens: [String]) -> Bool {
+        tokens.contains { value.contains(normalizeHeader($0)) }
+    }
+
+    private func removeUTF8BOMIfNeeded(from data: Data) -> Data {
+        let bom: [UInt8] = [0xEF, 0xBB, 0xBF]
+        if data.starts(with: bom) {
+            return data.dropFirst(3)
+        }
+        return data
     }
 
     private func decodedString(from data: Data) -> String? {
         String(data: data, encoding: .utf8)
         ?? String(data: data, encoding: .utf16)
         ?? String(data: data, encoding: .unicode)
+    }
+
+    private func detectDelimiter(in headerLine: String) -> Character {
+        let commaCount = countOccurrences(of: ",", in: headerLine)
+        let semicolonCount = countOccurrences(of: ";", in: headerLine)
+        return semicolonCount > commaCount ? ";" : ","
+    }
+
+    private func countOccurrences(of delimiter: Character, in line: String) -> Int {
+        var count = 0
+        var insideQuotes = false
+
+        for character in line {
+            if character == "\"" {
+                insideQuotes.toggle()
+                continue
+            }
+
+            if character == delimiter, !insideQuotes {
+                count += 1
+            }
+        }
+
+        return count
     }
 
     private func index(in headers: [String], matchingAny candidates: [String]) -> Int? {
@@ -401,6 +534,7 @@ final class ExpensesTransferService {
             .replacingOccurrences(of: " ", with: "")
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: ".", with: "")
     }
 
     private func escapeCSVCell(_ value: String) -> String {
@@ -411,7 +545,7 @@ final class ExpensesTransferService {
         return value
     }
 
-    private func parseCSVLine(_ line: String) -> [String] {
+    private func parseCSVLine(_ line: String, delimiter: Character) -> [String] {
         var result: [String] = []
         var current = ""
         var insideQuotes = false
@@ -429,7 +563,7 @@ final class ExpensesTransferService {
                 } else {
                     insideQuotes.toggle()
                 }
-            } else if character == ",", !insideQuotes {
+            } else if character == delimiter, !insideQuotes {
                 result.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
                 current = ""
             } else {

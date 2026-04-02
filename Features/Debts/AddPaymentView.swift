@@ -19,11 +19,14 @@ struct AddPaymentView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Text("\(settings.t("debts.balancePending")): \(settings.secureCurrency(debt.remainingDebt, decimals: 2))")
+                Text("\(settings.t("debts.balancePending")): \(settings.formatCurrency(debt.remainingDebt, decimals: 2))")
                     .fontWeight(.semibold)
 
-                TextField(settings.t("debts.paymentAmount"), text: $payment)
-                    .keyboardType(.decimalPad)
+                MoneyTextField(
+                    title: settings.t("debts.paymentAmount"),
+                    text: $payment,
+                    accessibilityIdentifier: "debt.payment.field"
+                )
 
                 if let validationError {
                     Section {

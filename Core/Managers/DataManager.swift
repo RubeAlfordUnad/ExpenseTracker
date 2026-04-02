@@ -257,18 +257,39 @@ final class DataManager {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return }
 
+        let shouldClearBudget = !budget.amount.isFinite || budget.amount <= 0
+
         guard migrateFinancialDataIfNeeded(for: cleanUser) else {
-            legacySave(budget, forKey: budgetKey(for: cleanUser))
+            if shouldClearBudget {
+                UserDefaults.standard.removeObject(forKey: budgetKey(for: cleanUser))
+            } else {
+                legacySave(budget, forKey: budgetKey(for: cleanUser))
+            }
             return
         }
 
         do {
             let context = makeContext()
-            try upsertMonthlyBudget(budget, user: cleanUser, context: context)
+
+            if shouldClearBudget {
+                try deleteStoredMonthlyBudget(user: cleanUser, context: context)
+            } else {
+                try upsertMonthlyBudget(budget, user: cleanUser, context: context)
+            }
+
             try context.save()
+
+            if shouldClearBudget {
+                UserDefaults.standard.removeObject(forKey: budgetKey(for: cleanUser))
+            }
         } catch {
             AppLogger.debug("Error guardando presupuesto en SwiftData: \(error)")
-            legacySave(budget, forKey: budgetKey(for: cleanUser))
+
+            if shouldClearBudget {
+                UserDefaults.standard.removeObject(forKey: budgetKey(for: cleanUser))
+            } else {
+                legacySave(budget, forKey: budgetKey(for: cleanUser))
+            }
         }
     }
 
@@ -277,7 +298,13 @@ final class DataManager {
         guard !cleanUser.isEmpty else { return nil }
 
         guard migrateFinancialDataIfNeeded(for: cleanUser) else {
-            return legacyLoad(MonthlyBudget.self, forKey: budgetKey(for: cleanUser))
+            guard let legacyBudget = legacyLoad(MonthlyBudget.self, forKey: budgetKey(for: cleanUser)),
+                  legacyBudget.amount.isFinite,
+                  legacyBudget.amount > 0 else {
+                return nil
+            }
+
+            return legacyBudget
         }
 
         do {
@@ -289,10 +316,26 @@ final class DataManager {
             )
             descriptor.fetchLimit = 1
 
-            return try context.fetch(descriptor).first?.toMonthlyBudget()
+            guard let stored = try context.fetch(descriptor).first else {
+                return nil
+            }
+
+            let budget = stored.toMonthlyBudget()
+            guard budget.amount.isFinite, budget.amount > 0 else {
+                return nil
+            }
+
+            return budget
         } catch {
             AppLogger.debug("Error cargando presupuesto desde SwiftData: \(error)")
-            return legacyLoad(MonthlyBudget.self, forKey: budgetKey(for: cleanUser))
+
+            guard let legacyBudget = legacyLoad(MonthlyBudget.self, forKey: budgetKey(for: cleanUser)),
+                  legacyBudget.amount.isFinite,
+                  legacyBudget.amount > 0 else {
+                return nil
+            }
+
+            return legacyBudget
         }
     }
 

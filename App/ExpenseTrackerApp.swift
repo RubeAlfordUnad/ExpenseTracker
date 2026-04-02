@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ExpenseTrackerApp: App {
+struct NexoraApp: App {
 
     @StateObject private var auth: AuthManager
     @StateObject private var settings: AppSettings

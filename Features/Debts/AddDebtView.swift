@@ -47,11 +47,17 @@ struct AddDebtView: View {
                     }
                 }
 
-                TextField(settings.t("debts.totalLimit"), text: $totalLimit)
-                    .keyboardType(.decimalPad)
+                MoneyTextField(
+                    title: settings.t("debts.totalLimit"),
+                    text: $totalLimit,
+                    accessibilityIdentifier: "debt.limit.field"
+                )
 
-                TextField(settings.t("debts.currentDebt"), text: $currentDebt)
-                    .keyboardType(.decimalPad)
+                MoneyTextField(
+                    title: settings.t("debts.currentDebt"),
+                    text: $currentDebt,
+                    accessibilityIdentifier: "debt.balance.field"
+                )
 
                 if let validationError {
                     Section {

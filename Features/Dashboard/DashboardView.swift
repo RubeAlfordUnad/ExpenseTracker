@@ -13,11 +13,9 @@ struct DashboardView: View {
     @Binding var selectedPhotoItem: PhotosPickerItem?
     @Binding var profileImageData: Data?
     let profileDisplayName: String
-    @Binding var showAddExpense: Bool
-    @Binding var showAddIncome: Bool
-
     let onReloadHomeData: () -> Void
     let onPersistExpenses: () -> Void
+    let onPersistIncomes: () -> Void
     let onRequestBudgetEdit: () -> Void
     let onRefreshInsight: () -> Void
     let onEvaluateBudgetNotifications: () -> Void
@@ -251,7 +249,6 @@ struct DashboardView: View {
                 }
 
                 recentActivitySection
-                quickActionsSection
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
@@ -646,10 +643,15 @@ struct DashboardView: View {
                 NavigationLink {
                     ExpenseHistoryView(
                         expenses: $expenses,
-                        onPersist: {
+                        incomes: $incomes,
+                        onPersistExpenses: {
                             onPersistExpenses()
                             onRefreshInsight()
                             onEvaluateBudgetNotifications()
+                        },
+                        onPersistIncomes: {
+                            onPersistIncomes()
+                            onRefreshInsight()
                         }
                     )
                     .environmentObject(settings)
@@ -673,71 +675,6 @@ struct DashboardView: View {
                         activityRow(item)
                     }
                 }
-            }
-        }
-    }
-
-    private var quickActionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(settings.t("main.quickActions"))
-                .font(.headline)
-
-            VStack(spacing: 10) {
-                Button {
-                    showAddExpense = true
-                } label: {
-                    quickActionCard(
-                        icon: "plus.circle",
-                        title: settings.language == .spanish ? "Agregar gasto" : "Add expense",
-                        subtitle: settings.language == .spanish
-                        ? "Registra una salida de dinero"
-                        : "Record money going out"
-                    )
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    showAddIncome = true
-                } label: {
-                    quickActionCard(
-                        icon: "arrow.down.circle",
-                        title: settings.language == .spanish ? "Registrar ingreso" : "Record income",
-                        subtitle: settings.language == .spanish
-                        ? "Agrega dinero que entra este mes"
-                        : "Add money coming in this month"
-                    )
-                }
-                .buttonStyle(.plain)
-
-                NavigationLink {
-                    ExpenseHistoryView(
-                        expenses: $expenses,
-                        onPersist: {
-                            onPersistExpenses()
-                            onRefreshInsight()
-                            onEvaluateBudgetNotifications()
-                        }
-                    )
-                    .environmentObject(settings)
-                } label: {
-                    quickActionCard(
-                        icon: "calendar",
-                        title: settings.t("main.historyTitle"),
-                        subtitle: settings.t("main.historySubtitle")
-                    )
-                }
-                .buttonStyle(.plain)
-
-                NavigationLink {
-                    SettingsView()
-                } label: {
-                    quickActionCard(
-                        icon: "gearshape",
-                        title: settings.t("main.settingsTitle"),
-                        subtitle: settings.t("main.settingsSubtitle")
-                    )
-                }
-                .buttonStyle(.plain)
             }
         }
     }

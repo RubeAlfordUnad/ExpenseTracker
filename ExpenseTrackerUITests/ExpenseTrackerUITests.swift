@@ -61,9 +61,9 @@ final class ExpenseTrackerUITests: XCTestCase {
 
         loginUser(app: app, username: username, password: password)
 
-        let addButton = app.buttons["expenses.add"]
-        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitUntilHittable(addButton, timeout: 5))
+        let addMenuButton = app.buttons["main.add.menu"]
+        XCTAssertTrue(addMenuButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntilHittable(addMenuButton, timeout: 5))
     }
 
     func testOpenAddExpenseSheet() throws {
@@ -81,10 +81,7 @@ final class ExpenseTrackerUITests: XCTestCase {
 
         loginUser(app: app, username: username, password: password)
 
-        let addButton = app.buttons["expenses.add"]
-        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitUntilHittable(addButton, timeout: 5))
-        addButton.tap()
+        openAddExpenseSheet(app)
 
         let saveButton = app.buttons["expense.save.button"]
         let cancelButton = app.buttons["expense.cancel.button"]
@@ -112,10 +109,7 @@ final class ExpenseTrackerUITests: XCTestCase {
 
         loginUser(app: app, username: username, password: password)
 
-        let addButton = app.buttons["expenses.add"]
-        XCTAssertTrue(addButton.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitUntilHittable(addButton, timeout: 5))
-        addButton.tap()
+        openAddExpenseSheet(app)
 
         let titleField = app.textFields["expense.title.field"]
         XCTAssertTrue(titleField.waitForExistence(timeout: 5))
@@ -206,8 +200,19 @@ final class ExpenseTrackerUITests: XCTestCase {
         dismissSystemPasswordPromptIfNeeded(app)
     }
 
+    private func openAddExpenseSheet(_ app: XCUIApplication) {
+        let addMenuButton = app.buttons["main.add.menu"]
+        XCTAssertTrue(addMenuButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntilHittable(addMenuButton, timeout: 5))
+        addMenuButton.tap()
+
+        let addExpenseButton = app.buttons["main.add.expense"]
+        XCTAssertTrue(addExpenseButton.waitForExistence(timeout: 3))
+        XCTAssertTrue(waitUntilHittable(addExpenseButton, timeout: 3))
+        addExpenseButton.tap()
+    }
+
     private func dismissSystemPasswordPromptIfNeeded(_ app: XCUIApplication) {
-        // Dispara el interruption monitor
         app.tap()
 
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")

@@ -5,8 +5,6 @@ struct SettingsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var settings: AppSettings
 
-    private let supportEmail = "motwd44011@outlook.com"
-
     var body: some View {
         List {
             Section {
@@ -19,6 +17,7 @@ struct SettingsView: View {
                         subtitle: profileRowSubtitle
                     )
                 }
+                .accessibilityIdentifier("settings.profile")
             } header: {
                 Text(settings.t("settings.section.profile"))
             }
@@ -33,6 +32,7 @@ struct SettingsView: View {
                         subtitle: settings.theme.title(for: settings.language)
                     )
                 }
+                .accessibilityIdentifier("settings.theme")
             } header: {
                 Text(settings.t("settings.section.appearance"))
             }
@@ -45,10 +45,11 @@ struct SettingsView: View {
                         icon: "lock.shield",
                         title: settings.securitySectionTitle,
                         subtitle: settings.language == .spanish
-                        ? "Ocultar montos y proteger la app al volver del fondo"
+                        ? "Oculta montos y protege la app al volver del fondo"
                         : "Hide amounts and protect the app when returning from background"
                     )
                 }
+                .accessibilityIdentifier("settings.security")
 
                 NavigationLink {
                     NotificationSettingsView()
@@ -59,6 +60,7 @@ struct SettingsView: View {
                         subtitle: settings.t("settings.notificationsSubtitle")
                     )
                 }
+                .accessibilityIdentifier("settings.notifications")
 
                 NavigationLink {
                     LanguageSettingsView()
@@ -69,6 +71,7 @@ struct SettingsView: View {
                         subtitle: settings.language.title
                     )
                 }
+                .accessibilityIdentifier("settings.language")
 
                 NavigationLink {
                     RegionCurrencySettingsView()
@@ -79,6 +82,7 @@ struct SettingsView: View {
                         subtitle: "\(settings.country.flag) \(settings.country.title(for: settings.language)) · \(settings.effectiveCurrency.rawValue)"
                     )
                 }
+                .accessibilityIdentifier("settings.regionCurrency")
 
                 NavigationLink {
                     ExchangeRateView()
@@ -89,6 +93,7 @@ struct SettingsView: View {
                         subtitle: "\(settings.effectiveCurrency.rawValue) → \(settings.exchangeRateTargetCurrency.rawValue)"
                     )
                 }
+                .accessibilityIdentifier("settings.exchangeRate")
             } header: {
                 Text(settings.t("settings.section.app"))
             }
@@ -105,6 +110,7 @@ struct SettingsView: View {
                         : "Export or recover a full JSON snapshot of your account"
                     )
                 }
+                .accessibilityIdentifier("settings.backup")
             } header: {
                 Text(settings.language == .spanish ? "Datos" : "Data")
             }
@@ -116,9 +122,12 @@ struct SettingsView: View {
                     settingRow(
                         icon: "hand.raised",
                         title: settings.t("settings.privacyPolicy"),
-                        subtitle: settings.language == .spanish ? "Datos locales y privacidad" : "Local data and privacy"
+                        subtitle: settings.language == .spanish
+                        ? "Datos locales, permisos y privacidad"
+                        : "Local data, permissions and privacy"
                     )
                 }
+                .accessibilityIdentifier("settings.privacy")
 
                 NavigationLink {
                     TermsView()
@@ -126,21 +135,50 @@ struct SettingsView: View {
                     settingRow(
                         icon: "doc.text",
                         title: settings.t("settings.terms"),
-                        subtitle: settings.language == .spanish ? "Uso y responsabilidades" : "Use and responsibilities"
+                        subtitle: settings.language == .spanish
+                        ? "Uso, límites y responsabilidades"
+                        : "Use, limits and responsibilities"
                     )
                 }
+                .accessibilityIdentifier("settings.terms")
 
-                Link(destination: URL(string: "mailto:\(supportEmail)")!) {
-                    settingRow(
-                        icon: "envelope",
-                        title: settings.language == .spanish ? "Soporte" : "Support",
-                        subtitle: supportEmail
-                    )
+                if let supportEmailURL = AppMetadata.supportEmailURL {
+                    Link(destination: supportEmailURL) {
+                        settingRow(
+                            icon: "envelope",
+                            title: settings.language == .spanish ? "Soporte" : "Support",
+                            subtitle: AppMetadata.supportEmail
+                        )
+                    }
+                    .accessibilityIdentifier("settings.support")
+                }
+
+                if let publicWebsiteURL = AppMetadata.publicWebsiteURL {
+                    Link(destination: publicWebsiteURL) {
+                        settingRow(
+                            icon: "globe",
+                            title: settings.language == .spanish ? "Sitio web" : "Website",
+                            subtitle: publicWebsiteURL.absoluteString
+                        )
+                    }
+                    .accessibilityIdentifier("settings.website")
                 }
             } header: {
                 Text(settings.language == .spanish ? "Legal y soporte" : "Legal and support")
             }
+
+            Section {
+                settingRow(
+                    icon: "info.circle",
+                    title: AppMetadata.displayName,
+                    subtitle: AppMetadata.versionDescription(for: settings.language)
+                )
+                .accessibilityIdentifier("settings.version")
+            } header: {
+                Text(settings.language == .spanish ? "Acerca de" : "About")
+            }
         }
+        .accessibilityIdentifier("settings.screen")
         .navigationTitle(settings.t("settings.title"))
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -165,6 +203,7 @@ struct SettingsView: View {
         }
         .padding(.vertical, 4)
     }
+
     private var profileRowSubtitle: String {
         let savedName = DataManager.shared.loadProfileDisplayName(user: auth.currentUser) ?? ""
 
