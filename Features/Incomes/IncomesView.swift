@@ -207,9 +207,16 @@ struct IncomesView: View {
                 Text(income.title)
                     .font(.headline)
 
-                Text(income.category.displayName(language: settings.language))
+                Text(income.categoryDisplayName(language: settings.language))
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+
+                if let comment = income.normalizedComment {
+                    Text(comment)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
 
                 Text(settings.shortDateString(from: income.date))
                     .font(.caption)
@@ -219,9 +226,15 @@ struct IncomesView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 10) {
-                Text("+\(settings.secureCurrency(income.amount))")
-                    .font(.headline)
-                    .foregroundColor(.green)
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.subheadline)
+                        .foregroundColor(.green)
+
+                    Text("+\(settings.secureCurrency(income.amount))")
+                        .font(.headline)
+                        .foregroundColor(.green)
+                }
 
                 Menu {
                     Button(settings.language == .spanish ? "Editar" : "Edit") {

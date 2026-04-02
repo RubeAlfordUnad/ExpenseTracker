@@ -110,7 +110,26 @@ struct SettingsView: View {
                         : "Export or recover a full JSON snapshot of your account"
                     )
                 }
-                .accessibilityIdentifier("settings.backup")
+
+                NavigationLink {
+                    CustomCategoriesSettingsView(mode: .expense)
+                } label: {
+                    settingRow(
+                        icon: "arrow.up.circle",
+                        title: settings.language == .spanish ? "Categorías personalizadas de gastos" : "Custom expense categories",
+                        subtitle: settings.language == .spanish ? "Gestiona nombres reutilizables para gastos" : "Manage reusable names for expenses"
+                    )
+                }
+
+                NavigationLink {
+                    CustomCategoriesSettingsView(mode: .income)
+                } label: {
+                    settingRow(
+                        icon: "arrow.down.circle",
+                        title: settings.language == .spanish ? "Categorías personalizadas de ingresos" : "Custom income categories",
+                        subtitle: settings.language == .spanish ? "Gestiona nombres reutilizables para ingresos" : "Manage reusable names for income"
+                    )
+                }
             } header: {
                 Text(settings.language == .spanish ? "Datos" : "Data")
             }

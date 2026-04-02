@@ -192,7 +192,8 @@ struct DashboardView: View {
             DashboardActivityItem(
                 id: "expense-\(expense.id.uuidString)",
                 title: expense.title,
-                subtitle: expense.category.displayName(language: settings.language),
+                subtitle: expense.categoryDisplayName(language: settings.language),
+                note: expense.normalizedComment,
                 amount: expense.amount,
                 date: expense.date,
                 icon: expense.category.icon,
@@ -205,7 +206,8 @@ struct DashboardView: View {
             DashboardActivityItem(
                 id: "income-\(income.id.uuidString)",
                 title: income.title,
-                subtitle: income.category.displayName(language: settings.language),
+                subtitle: income.categoryDisplayName(language: settings.language),
+                note: income.normalizedComment,
                 amount: income.amount,
                 date: income.date,
                 icon: income.category.icon,
@@ -265,44 +267,36 @@ struct DashboardView: View {
     }
 
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 14) {
-                VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(greetingText)
-                        .font(.caption.bold())
+                        .font(.footnote.weight(.semibold))
                         .foregroundColor(BrandPalette.primary)
 
                     Text(settings.language == .spanish ? "Panel financiero" : "Financial dashboard")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.82)
+                        .minimumScaleFactor(0.84)
 
                     Text(headerSubtitle)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
-                        .lineLimit(3)
+                        .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .layoutPriority(1)
 
                 avatarPickerButton
-                    .padding(.top, 4)
             }
 
-            ViewThatFits {
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     headerPill(icon: "calendar", text: currentMonthLabel)
-                    headerPill(icon: "list.bullet", text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count))
-                    headerPill(icon: "arrow.down.circle", text: incomeCountText)
-                    headerPill(icon: "arrow.up.circle", text: expenseCountText)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    headerPill(icon: "calendar", text: currentMonthLabel)
-                    headerPill(icon: "list.bullet", text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count))
-                    headerPill(icon: "arrow.down.circle", text: incomeCountText)
-                    headerPill(icon: "arrow.up.circle", text: expenseCountText)
+                    headerPill(
+                        icon: "list.bullet",
+                        text: settings.tr("main.movesCount", currentMonthExpenses.count + currentMonthIncomes.count)
+                    )
                 }
             }
         }
@@ -849,50 +843,63 @@ struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private func activityRow(_ item: DashboardActivityItem) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(item.tint.opacity(0.18))
-                    .frame(width: 44, height: 44)
+private func activityRow(_ item: DashboardActivityItem) -> some View {
+    HStack(spacing: 14) {
+        ZStack {
+            Circle()
+                .fill(item.tint.opacity(0.18))
+                .frame(width: 44, height: 44)
 
-                Image(systemName: item.icon)
-                    .foregroundColor(item.tint)
-            }
+            Image(systemName: item.icon)
+                .foregroundColor(item.tint)
+        }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title)
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(item.title)
+                .font(.subheadline.bold())
+                .lineLimit(1)
 
-                Text(item.subtitle)
-                    .font(.caption)
+            Text(item.subtitle)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+
+            if let note = item.note, !note.isEmpty {
+                Text(note)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
+        }
 
-            Spacer()
+        Spacer()
 
-            VStack(alignment: .trailing, spacing: 3) {
+        VStack(alignment: .trailing, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: item.kind == .income ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                    .font(.subheadline)
+                    .foregroundColor(item.kind == .income ? .green : .red)
+
                 Text(item.kind == .income ? "+\(settings.secureCurrency(item.amount))" : "-\(settings.secureCurrency(item.amount))")
                     .font(.subheadline.bold())
                     .foregroundColor(item.kind == .income ? .green : .red)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-
-                Text(settings.shortDateString(from: item.date))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+
+            Text(settings.shortDateString(from: item.date))
+                .font(.caption)
+                .foregroundColor(.secondary)
         }
-        .padding(16)
-        .background(BrandPalette.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(BrandPalette.stroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
+    .padding(16)
+    .background(BrandPalette.surface)
+    .overlay(
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .stroke(BrandPalette.stroke, lineWidth: 1)
+    )
+    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+}
 
     private func emptyDashboardCard(title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -912,6 +919,20 @@ struct DashboardView: View {
                 .stroke(BrandPalette.stroke, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+    
+    private func transactionDirectionIcon(for kind: DashboardActivityItem.Kind) -> String {
+        kind == .income ? "arrow.down.circle.fill" : "arrow.up.circle.fill"
+    }
+
+    private func transactionDirectionColor(for kind: DashboardActivityItem.Kind) -> Color {
+        kind == .income ? .green : .red
+    }
+
+    private func signedAmountText(for item: DashboardActivityItem) -> String {
+        item.kind == .income
+        ? "+\(settings.secureCurrency(item.amount))"
+        : "-\(settings.secureCurrency(item.amount))"
     }
 
     private func quickActionCard(icon: String, title: String, subtitle: String) -> some View {
@@ -1010,6 +1031,7 @@ private struct DashboardActivityItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String
+    let note: String?
     let amount: Double
     let date: Date
     let icon: String

@@ -9,6 +9,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     private let recurringNotificationMinute = 0
     private let recurringMonthsAhead = 12
 
+    private let dailySummaryHour = 20
+    private let dailySummaryMinute = 30
+    private let dailySummaryIdentifier = "daily_summary_notification"
+
     private override init() {
         super.init()
     }
@@ -41,7 +45,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     func testNotification() {
         let content = UNMutableNotificationContent()
         content.title = AppMetadata.displayName
-        content.body = localizedText(spanish: "Esta es una notificación de prueba.", english: "This is a test notification.")
+        content.body = localizedText(
+            spanish: "Todo listo. Nexora puede recordarte pagos próximos y tu revisión diaria.",
+            english: "All set. Nexora can remind you about upcoming payments and your daily review."
+        )
         content.sound = .default
 
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
@@ -104,62 +111,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func scheduleRecurringPaymentNotifications(_ payment: RecurringPayment) {
-        guard payment.isActive else { return }
-
-        let now = Date()
-        let calendar = Calendar.current
-        let center = UNUserNotificationCenter.current()
-
-        for monthOffset in 0..<recurringMonthsAhead {
-            guard let monthDate = calendar.date(byAdding: .month, value: monthOffset, to: now),
-                  let dueDate = payment.dueDate(
-                    inMonthOf: monthDate,
-                    hour: recurringNotificationHour,
-                    minute: recurringNotificationMinute,
-                    calendar: calendar
-                  ) else {
-                continue
-            }
-
-            guard dueDate > now else { continue }
-
-            let year = calendar.component(.year, from: dueDate)
-            let month = calendar.component(.month, from: dueDate)
-
-            let content = UNMutableNotificationContent()
-            content.title = localizedText(spanish: "Pago pendiente", english: "Payment due")
-            content.body = localizedText(
-                spanish: "\(payment.title) vence hoy.",
-                english: "\(payment.title) is due today."
-            )
-            content.sound = .default
-
-            let components = calendar.dateComponents(
-                [.year, .month, .day, .hour, .minute],
-                from: dueDate
-            )
-
-            let trigger = UNCalendarNotificationTrigger(
-                dateMatching: components,
-                repeats: false
-            )
-
-            let request = UNNotificationRequest(
-                identifier: recurringNotificationIdentifier(
-                    paymentID: payment.id,
-                    year: year,
-                    month: month
-                ),
-                content: content,
-                trigger: trigger
-            )
-
-            center.add(request) { error in
-                if let error {
-                    AppLogger.debug("Error programando recurrente \(payment.title): \(error.localizedDescription)")
-                }
-            }
-        }
+        scheduleRecurringPaymentNotifications(payment, leadDays: 0)
     }
 
     func cancelNotification(for payment: RecurringPayment) {
@@ -168,6 +120,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     func cancelNotifications(for payments: [RecurringPayment]) {
         removeRecurringNotifications(for: payments.map(\.id))
+        cancelDailySummaryNotifications()
     }
 
     func syncRecurringPaymentNotifications(for user: String) {
@@ -182,35 +135,26 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
         syncRecurringPaymentNotifications(
             payments,
-            isEnabled: preferences.recurringPaymentsEnabled
+            isEnabled: preferences.recurringPaymentsEnabled,
+            leadDays: preferences.recurringReminderLeadDays
         )
+
+        syncDailySummaryNotification(isEnabled: preferences.dailySummaryEnabled)
     }
 
     func syncRecurringPaymentNotifications(
         _ payments: [RecurringPayment],
         isEnabled: Bool
     ) {
-        removeRecurringNotifications(for: payments.map(\.id)) { [weak self] in
-            guard let self else { return }
+        syncRecurringPaymentNotifications(payments, isEnabled: isEnabled, leadDays: 0)
+    }
 
-            guard isEnabled else {
-                AppLogger.debug("Notificaciones recurrentes desactivadas. No se reprograma nada.")
-                return
-            }
+    func cancelDailySummaryNotifications() {
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: [dailySummaryIdentifier])
 
-            self.getAuthorizationStatus { status in
-                guard self.canScheduleNotifications(for: status) else {
-                    AppLogger.debug("No se programan recurrentes: permisos no concedidos (\(status.rawValue)).")
-                    return
-                }
-
-                let activePayments = payments.filter(\.isActive)
-
-                for payment in activePayments {
-                    self.scheduleRecurringPaymentNotifications(payment)
-                }
-            }
-        }
+        UNUserNotificationCenter.current()
+            .removeDeliveredNotifications(withIdentifiers: [dailySummaryIdentifier])
     }
 
     func cancelBudgetNotifications() {
@@ -247,9 +191,146 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        return [.banner, .sound, .badge]
+        [.banner, .sound, .badge]
     }
 
+    private func syncRecurringPaymentNotifications(
+        _ payments: [RecurringPayment],
+        isEnabled: Bool,
+        leadDays: Int
+    ) {
+        removeRecurringNotifications(for: payments.map(\.id)) { [weak self] in
+            guard let self else { return }
+
+            guard isEnabled else {
+                AppLogger.debug("Notificaciones recurrentes desactivadas. No se reprograma nada.")
+                return
+            }
+
+            self.getAuthorizationStatus { status in
+                guard self.canScheduleNotifications(for: status) else {
+                    AppLogger.debug("No se programan recurrentes: permisos no concedidos (\(status.rawValue)).")
+                    return
+                }
+
+                let activePayments = payments.filter(\.isActive)
+                let normalizedLeadDays = self.normalizedLeadDays(leadDays)
+
+                for payment in activePayments {
+                    self.scheduleRecurringPaymentNotifications(payment, leadDays: normalizedLeadDays)
+                }
+            }
+        }
+    }
+
+    private func syncDailySummaryNotification(isEnabled: Bool) {
+        cancelDailySummaryNotifications()
+
+        guard isEnabled else {
+            AppLogger.debug("Resumen diario desactivado. No se programa.")
+            return
+        }
+
+        getAuthorizationStatus { [weak self] status in
+            guard let self else { return }
+
+            guard self.canScheduleNotifications(for: status) else {
+                AppLogger.debug("No se programa resumen diario: permisos no concedidos (\(status.rawValue)).")
+                return
+            }
+
+            let content = UNMutableNotificationContent()
+            content.title = self.localizedText(
+                spanish: "Revisión rápida del día",
+                english: "Quick daily review"
+            )
+            content.body = self.localizedText(
+                spanish: "Abre Nexora y revisa ingresos, gastos y presupuesto antes de cerrar el día.",
+                english: "Open Nexora and review income, expenses, and budget before ending the day."
+            )
+            content.sound = .default
+
+            var components = DateComponents()
+            components.hour = self.dailySummaryHour
+            components.minute = self.dailySummaryMinute
+
+            let trigger = UNCalendarNotificationTrigger(
+                dateMatching: components,
+                repeats: true
+            )
+
+            let request = UNNotificationRequest(
+                identifier: self.dailySummaryIdentifier,
+                content: content,
+                trigger: trigger
+            )
+
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    AppLogger.debug("Error programando resumen diario: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    private func scheduleRecurringPaymentNotifications(_ payment: RecurringPayment, leadDays: Int) {
+        guard payment.isActive else { return }
+
+        let now = Date()
+        let calendar = Calendar.current
+        let center = UNUserNotificationCenter.current()
+        let normalizedLeadDays = normalizedLeadDays(leadDays)
+
+        for monthOffset in 0..<recurringMonthsAhead {
+            guard let monthDate = calendar.date(byAdding: .month, value: monthOffset, to: now),
+                  let dueDate = payment.dueDate(
+                    inMonthOf: monthDate,
+                    hour: recurringNotificationHour,
+                    minute: recurringNotificationMinute,
+                    calendar: calendar
+                  ),
+                  let reminderDate = calendar.date(byAdding: .day, value: -normalizedLeadDays, to: dueDate) else {
+                continue
+            }
+
+            guard reminderDate > now else { continue }
+
+            let year = calendar.component(.year, from: dueDate)
+            let month = calendar.component(.month, from: dueDate)
+
+            let content = UNMutableNotificationContent()
+            content.title = localizedText(spanish: "Recordatorio de pago", english: "Payment reminder")
+            content.body = recurringNotificationBody(for: payment, leadDays: normalizedLeadDays)
+            content.sound = .default
+
+            let components = calendar.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: reminderDate
+            )
+
+            let trigger = UNCalendarNotificationTrigger(
+                dateMatching: components,
+                repeats: false
+            )
+
+            let request = UNNotificationRequest(
+                identifier: recurringNotificationIdentifier(
+                    paymentID: payment.id,
+                    year: year,
+                    month: month,
+                    leadDays: normalizedLeadDays
+                ),
+                content: content,
+                trigger: trigger
+            )
+
+            center.add(request) { error in
+                if let error {
+                    AppLogger.debug("Error programando recurrente \(payment.title): \(error.localizedDescription)")
+                }
+            }
+        }
+    }
 
     private var notificationLanguage: AppLanguage {
         if let rawValue = UserDefaults.standard.string(forKey: "app_language"),
@@ -276,13 +357,38 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    private func normalizedLeadDays(_ value: Int) -> Int {
+        min(max(value, 0), 3)
+    }
+
+    private func recurringNotificationBody(for payment: RecurringPayment, leadDays: Int) -> String {
+        if leadDays == 0 {
+            return localizedText(
+                spanish: "\(payment.title) vence hoy.",
+                english: "\(payment.title) is due today."
+            )
+        }
+
+        if leadDays == 1 {
+            return localizedText(
+                spanish: "\(payment.title) vence mañana.",
+                english: "\(payment.title) is due tomorrow."
+            )
+        }
+
+        return localizedText(
+            spanish: "\(payment.title) vence en \(leadDays) días.",
+            english: "\(payment.title) is due in \(leadDays) days."
+        )
+    }
+
     private func recurringNotificationPrefix(for paymentID: UUID) -> String {
         "recurring_payment_\(paymentID.uuidString)_"
     }
 
-    private func recurringNotificationIdentifier(paymentID: UUID, year: Int, month: Int) -> String {
+    private func recurringNotificationIdentifier(paymentID: UUID, year: Int, month: Int, leadDays: Int) -> String {
         let monthString = String(format: "%02d", month)
-        return "\(recurringNotificationPrefix(for: paymentID))\(year)_\(monthString)"
+        return "\(recurringNotificationPrefix(for: paymentID))\(year)_\(monthString)_\(leadDays)d"
     }
 
     private func removeRecurringNotifications(for paymentIDs: [UUID], completion: (() -> Void)? = nil) {

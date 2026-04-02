@@ -4,12 +4,17 @@ struct AddExpenseView: View {
 
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: AppSettings
+    @EnvironmentObject var auth: AuthManager
 
     @State private var title: String
     @State private var amount: String
     @State private var category: Category
+    @State private var customCategoryName: String
+    @State private var comment: String
     @State private var expenseDate: Date
+    @State private var customCategories: [CustomExpenseCategory] = []
     @State private var showValidationAlert = false
+    @State private var showManageCategories = false
 
     let existingExpense: Expense?
     var onSave: (Expense) -> Void
@@ -21,6 +26,8 @@ struct AddExpenseView: View {
         _title = State(initialValue: existingExpense?.title ?? "")
         _amount = State(initialValue: existingExpense.map { Self.makeAmountText($0.amount) } ?? "")
         _category = State(initialValue: existingExpense?.category ?? .other)
+        _customCategoryName = State(initialValue: existingExpense?.customCategoryName ?? "")
+        _comment = State(initialValue: existingExpense?.comment ?? "")
         _expenseDate = State(initialValue: existingExpense?.date ?? Date())
     }
 
@@ -35,28 +42,98 @@ struct AddExpenseView: View {
     var body: some View {
         NavigationStack {
             Form {
-                TextField(settings.t("expense.title"), text: $title)
-                    .accessibilityIdentifier("expense.title.field")
+                Section {
+                    TextField(settings.t("expense.title"), text: $title)
+                        .accessibilityIdentifier("expense.title.field")
 
-                MoneyTextField(
-                    title: settings.t("expense.amount"),
-                    text: $amount,
-                    accessibilityIdentifier: "expense.amount.field"
-                )
+                    MoneyTextField(
+                        title: settings.t("expense.amount"),
+                        text: $amount,
+                        accessibilityIdentifier: "expense.amount.field"
+                    )
 
-                DatePicker(
-                    settings.language == .spanish ? "Fecha" : "Date",
-                    selection: $expenseDate,
-                    displayedComponents: .date
-                )
-                .accessibilityIdentifier("expense.date.field")
-
-                Picker(settings.t("expense.category"), selection: $category) {
-                    ForEach(Category.allCases, id: \.self) { item in
-                        Text(item.displayName(language: settings.language))
-                    }
+                    DatePicker(
+                        settings.language == .spanish ? "Fecha" : "Date",
+                        selection: $expenseDate,
+                        displayedComponents: .date
+                    )
+                    .accessibilityIdentifier("expense.date.field")
                 }
-                .accessibilityIdentifier("expense.category.picker")
+
+                Section {
+                    Picker(settings.language == .spanish ? "Estilo visual base" : "Base visual style", selection: $category) {
+                        ForEach(Category.allCases, id: \.self) { item in
+                            Text(item.displayName(language: settings.language))
+                                .tag(item)
+                        }
+                    }
+                    .accessibilityIdentifier("expense.category.picker")
+
+                    TextField(
+                        settings.language == .spanish ? "Categoría personalizada (opcional)" : "Custom category (optional)",
+                        text: $customCategoryName
+                    )
+                    .accessibilityIdentifier("expense.customCategory.field")
+
+                    if !customCategories.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(customCategories) { item in
+                                    Button {
+                                        customCategoryName = item.name
+                                        category = item.style
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: item.style.icon)
+                                            Text(item.name)
+                                        }
+                                        .font(.caption.weight(.medium))
+                                        .foregroundColor(item.style.color)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(item.style.color.opacity(0.12))
+                                        .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    Button {
+                        saveReusableCustomCategory()
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Guardar categoría personalizada" : "Save custom category",
+                            systemImage: "square.and.arrow.down"
+                        )
+                    }
+                    .disabled(customCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button {
+                        showManageCategories = true
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Gestionar categorías guardadas" : "Manage saved categories",
+                            systemImage: "slider.horizontal.3"
+                        )
+                    }
+                } header: {
+                    Text(settings.t("expense.category"))
+                }
+
+                Section {
+                    TextField(
+                        settings.language == .spanish ? "Comentario (opcional)" : "Comment (optional)",
+                        text: $comment,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...5)
+                    .accessibilityIdentifier("expense.comment.field")
+                } header: {
+                    Text(settings.language == .spanish ? "Comentario" : "Comment")
+                }
 
                 if let validationError {
                     Section {
@@ -88,6 +165,13 @@ struct AddExpenseView: View {
                     .accessibilityIdentifier("expense.cancel.button")
                 }
             }
+            .sheet(isPresented: $showManageCategories) {
+                NavigationStack {
+                    CustomCategoriesSettingsView(mode: .expense)
+                        .environmentObject(auth)
+                        .environmentObject(settings)
+                }
+            }
             .alert(
                 validationError?.title(language: settings.language) ?? "",
                 isPresented: $showValidationAlert
@@ -96,8 +180,31 @@ struct AddExpenseView: View {
             } message: {
                 Text(validationError?.message(language: settings.language) ?? "")
             }
+            .onAppear {
+                reloadCustomCategories()
+            }
         }
         .accessibilityIdentifier("expense.sheet")
+    }
+
+    private func reloadCustomCategories() {
+        customCategories = TransactionCustomizationStore.shared.loadExpenseCustomCategories(user: auth.currentUser)
+    }
+
+    private func saveReusableCustomCategory() {
+        let trimmed = customCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        var items = TransactionCustomizationStore.shared.loadExpenseCustomCategories(user: auth.currentUser)
+
+        if let index = items.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
+            items[index] = CustomExpenseCategory(id: items[index].id, name: trimmed, style: category)
+        } else {
+            items.append(CustomExpenseCategory(name: trimmed, style: category))
+        }
+
+        TransactionCustomizationStore.shared.saveExpenseCustomCategories(items, user: auth.currentUser)
+        reloadCustomCategories()
     }
 
     private func saveExpense() {
@@ -116,7 +223,9 @@ struct AddExpenseView: View {
             title: FormValidator.trim(title),
             amount: parsedAmount,
             date: expenseDate,
-            category: category
+            category: category,
+            customCategoryName: customCategoryName,
+            comment: comment
         )
 
         onSave(savedExpense)

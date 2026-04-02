@@ -61,4 +61,39 @@ struct Income: Identifiable, Codable, Equatable {
     var amount: Double
     var date: Date
     var category: IncomeCategory
+    var customCategoryName: String?
+    var comment: String?
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        amount: Double,
+        date: Date,
+        category: IncomeCategory,
+        customCategoryName: String? = nil,
+        comment: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.amount = amount
+        self.date = date
+        self.category = category
+        self.customCategoryName = Self.normalizedText(customCategoryName)
+        self.comment = Self.normalizedText(comment)
+    }
+
+    func categoryDisplayName(language: AppLanguage) -> String {
+        let trimmed = customCategoryName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? category.displayName(language: language) : trimmed
+    }
+
+    var normalizedComment: String? {
+        Self.normalizedText(comment)
+    }
+
+    private static func normalizedText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 }

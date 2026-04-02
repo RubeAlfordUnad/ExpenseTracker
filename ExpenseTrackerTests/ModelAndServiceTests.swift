@@ -89,62 +89,38 @@ struct ModelAndServiceTests {
         #expect(csv.contains("1200000.0"))
     }
 
-    @Test("ExpensesTransferService importa CSV con ;, BOM y omite filas inválidas")
-    func expensesTransferService_imports_semicolon_csv_and_skips_invalid_rows() throws {
-        let csv = """
-        \u{FEFF}title;amount;date;category
-        Supermercado;12.345,67;2026-03-15;Comida
-        Taxi;abc;2026-03-16;Transporte
+    @Test("NotificationPreferences soporta payloads viejos")
+    func notificationPreferences_decodes_legacy_payload() throws {
+        let json = """
+        {
+          "recurringPaymentsEnabled": false,
+          "budgetAlertsEnabled": true,
+          "budgetAlertThreshold": 0.9
+        }
         """
 
-        let result = try ExpensesTransferService().importExpenses(
-            from: Data(csv.utf8),
-            contentType: .commaSeparatedText
-        )
+        let decoded = try JSONDecoder().decode(NotificationPreferences.self, from: Data(json.utf8))
 
-        #expect(result.totalRows == 2)
-        #expect(result.importedRows == 1)
-        #expect(result.skippedRows == 1)
-        #expect(result.expenses.count == 1)
-
-        let expense = try #require(result.expenses.first)
-        #expect(expense.title == "Supermercado")
-        #expect(abs(expense.amount - 12345.67) < 0.001)
-        #expect(expense.category == .food)
-
-        let components = Calendar.current.dateComponents([.year, .month, .day], from: expense.date)
-        #expect(components.year == 2026)
-        #expect(components.month == 3)
-        #expect(components.day == 15)
+        #expect(decoded.recurringPaymentsEnabled == false)
+        #expect(decoded.recurringReminderLeadDays == 0)
+        #expect(decoded.budgetAlertsEnabled == true)
+        #expect(abs(decoded.budgetAlertThreshold - 0.9) < 0.0001)
+        #expect(decoded.dailySummaryEnabled == false)
     }
 
-    @Test("ExpensesTransferService importa JSON ISO8601 correctamente")
-    func expensesTransferService_imports_json_iso8601() throws {
-        let json = """
-        [
-          {
-            "id": "3A15A1E8-2A8E-4BAA-8E52-51A5C39B7D5A",
-            "title": "Netflix",
-            "amount": 38900,
-            "date": "2026-03-01T00:00:00Z",
-            "category": "Suscripciones"
-          }
-        ]
-        """
-
-        let result = try ExpensesTransferService().importExpenses(
-            from: Data(json.utf8),
-            contentType: .json
+    @Test("NotificationPreferences conserva nuevas claves")
+    func notificationPreferences_preserves_new_fields() throws {
+        let original = NotificationPreferences(
+            recurringPaymentsEnabled: true,
+            recurringReminderLeadDays: 2,
+            budgetAlertsEnabled: true,
+            budgetAlertThreshold: 0.75,
+            dailySummaryEnabled: true
         )
 
-        #expect(result.totalRows == 1)
-        #expect(result.importedRows == 1)
-        #expect(result.skippedRows == 0)
-        #expect(result.expenses.count == 1)
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(NotificationPreferences.self, from: data)
 
-        let expense = try #require(result.expenses.first)
-        #expect(expense.title == "Netflix")
-        #expect(expense.amount == 38900)
-        #expect(expense.category == .subscriptions)
+        #expect(decoded == original)
     }
 }

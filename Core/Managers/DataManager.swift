@@ -77,6 +77,8 @@ final class DataManager {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return }
 
+        TransactionCustomizationStore.shared.saveExpenseMetadata(from: expenses, user: cleanUser)
+
         guard migrateFinancialDataIfNeeded(for: cleanUser) else {
             legacySave(expenses, forKey: expensesKey(for: cleanUser))
             return
@@ -96,24 +98,28 @@ final class DataManager {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return [] }
 
-        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
-            return legacyLoad([Expense].self, forKey: expensesKey(for: cleanUser)) ?? []
+        let loaded: [Expense]
+
+        if !migrateFinancialDataIfNeeded(for: cleanUser) {
+            loaded = legacyLoad([Expense].self, forKey: expensesKey(for: cleanUser)) ?? []
+        } else {
+            do {
+                let context = makeContext()
+                let targetUser = cleanUser
+
+                let descriptor = FetchDescriptor<StoredExpense>(
+                    predicate: #Predicate { $0.user == targetUser },
+                    sortBy: [SortDescriptor(\StoredExpense.date, order: .reverse)]
+                )
+
+                loaded = try context.fetch(descriptor).map { $0.toExpense() }
+            } catch {
+                AppLogger.debug("Error cargando gastos desde SwiftData: \(error)")
+                loaded = legacyLoad([Expense].self, forKey: expensesKey(for: cleanUser)) ?? []
+            }
         }
 
-        do {
-            let context = makeContext()
-            let targetUser = cleanUser
-
-            let descriptor = FetchDescriptor<StoredExpense>(
-                predicate: #Predicate { $0.user == targetUser },
-                sortBy: [SortDescriptor(\StoredExpense.date, order: .reverse)]
-            )
-
-            return try context.fetch(descriptor).map { $0.toExpense() }
-        } catch {
-            AppLogger.debug("Error cargando gastos desde SwiftData: \(error)")
-            return legacyLoad([Expense].self, forKey: expensesKey(for: cleanUser)) ?? []
-        }
+        return TransactionCustomizationStore.shared.mergeExpenseMetadata(into: loaded, user: cleanUser)
     }
 
     // MARK: - Incomes
@@ -121,6 +127,8 @@ final class DataManager {
     func saveIncomes(_ incomes: [Income], user: String) {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return }
+
+        TransactionCustomizationStore.shared.saveIncomeMetadata(from: incomes, user: cleanUser)
 
         guard migrateFinancialDataIfNeeded(for: cleanUser) else {
             legacySave(incomes, forKey: incomesKey(for: cleanUser))
@@ -136,31 +144,36 @@ final class DataManager {
             legacySave(incomes, forKey: incomesKey(for: cleanUser))
         }
     }
-
+    
+    
     func loadIncomes(user: String) -> [Income] {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return [] }
 
-        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
-            return legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) ?? []
+        let loaded: [Income]
+
+        if !migrateFinancialDataIfNeeded(for: cleanUser) {
+            loaded = legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) ?? []
+        } else {
+            do {
+                let context = makeContext()
+                let targetUser = cleanUser
+
+                let descriptor = FetchDescriptor<StoredIncome>(
+                    predicate: #Predicate { $0.user == targetUser },
+                    sortBy: [SortDescriptor(\StoredIncome.date, order: .reverse)]
+                )
+
+                loaded = try context.fetch(descriptor).map { $0.toIncome() }
+            } catch {
+                AppLogger.debug("Error cargando ingresos desde SwiftData: \(error)")
+                loaded = legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) ?? []
+            }
         }
 
-        do {
-            let context = makeContext()
-            let targetUser = cleanUser
-
-            let descriptor = FetchDescriptor<StoredIncome>(
-                predicate: #Predicate { $0.user == targetUser },
-                sortBy: [SortDescriptor(\StoredIncome.date, order: .reverse)]
-            )
-
-            return try context.fetch(descriptor).map { $0.toIncome() }
-        } catch {
-            AppLogger.debug("Error cargando ingresos desde SwiftData: \(error)")
-            return legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) ?? []
-        }
+        return TransactionCustomizationStore.shared.mergeIncomeMetadata(into: loaded, user: cleanUser)
     }
-
+    
     // MARK: - Debts
 
     func saveDebts(_ debts: [Debt], user: String) {
@@ -501,6 +514,8 @@ final class DataManager {
         }
 
         try? fileManager.removeItem(at: profileImageFileURL(for: cleanUser))
+        
+        TransactionCustomizationStore.shared.deleteAllData(for: cleanUser)
 
         let defaults = UserDefaults.standard
         let keys = [

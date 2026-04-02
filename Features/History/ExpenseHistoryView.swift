@@ -58,6 +58,7 @@ struct ExpenseHistoryView: View {
         let amount: Double
         let date: Date
         let subtitle: String
+        let note: String?
         let icon: String
         let tint: Color
         let kind: EntryKind
@@ -1130,14 +1131,27 @@ struct ExpenseHistoryView: View {
                 Text(entry.subtitle)
                     .font(.caption)
                     .foregroundColor(.secondary)
+
+                if let note = entry.note, !note.isEmpty {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
             }
 
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                Text(amountLabel(for: entry))
-                    .font(.subheadline.bold())
-                    .foregroundColor(entry.kind == .income ? .green : .primary)
+                HStack(spacing: 6) {
+                    Image(systemName: entry.kind == .income ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                        .font(.subheadline)
+                        .foregroundColor(entry.kind == .income ? .green : .red)
+
+                    Text(amountLabel(for: entry))
+                        .font(.subheadline.bold())
+                        .foregroundColor(entry.kind == .income ? .green : .red)
+                }
 
                 Text(entry.date.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption)
@@ -1188,16 +1202,29 @@ struct ExpenseHistoryView: View {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
                     .foregroundColor(.secondary)
-                    .frame(width: 34, height: 34)
             }
         }
         .padding(16)
         .background(BrandPalette.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(BrandPalette.stroke, lineWidth: 1)
-        )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+    
+    private func directionIcon(for entry: LedgerEntry) -> String {
+        switch entry.kind {
+        case .expense:
+            return "arrow.up.circle.fill"
+        case .income:
+            return "arrow.down.circle.fill"
+        }
+    }
+
+    private func directionColor(for entry: LedgerEntry) -> Color {
+        switch entry.kind {
+        case .expense:
+            return .red
+        case .income:
+            return .green
+        }
     }
 
     private func amountLabel(for entry: LedgerEntry) -> String {
@@ -1526,7 +1553,8 @@ struct ExpenseHistoryView: View {
                 title: expense.title,
                 amount: expense.amount,
                 date: expense.date,
-                subtitle: expense.category.displayName(language: settings.language),
+                subtitle: expense.categoryDisplayName(language: settings.language),
+                note: expense.normalizedComment,
                 icon: expense.category.icon,
                 tint: expense.category.color,
                 kind: .expense,
@@ -1541,7 +1569,8 @@ struct ExpenseHistoryView: View {
                 title: income.title,
                 amount: income.amount,
                 date: income.date,
-                subtitle: income.category.displayName(language: settings.language),
+                subtitle: income.categoryDisplayName(language: settings.language),
+                note: income.normalizedComment,
                 icon: income.category.icon,
                 tint: income.category.color,
                 kind: .income,

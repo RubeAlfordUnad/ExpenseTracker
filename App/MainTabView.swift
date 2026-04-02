@@ -89,20 +89,34 @@ struct MainTabView: View {
                             .accessibilityIdentifier("main.settings")
 
                             Menu {
-                                Button(addExpenseActionTitle) {
+                                Button {
                                     showAddExpense = true
+                                } label: {
+                                    Label {
+                                        Text(addExpenseActionTitle)
+                                    } icon: {
+                                        Image(systemName: "arrow.up.circle.fill")
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, .red)
+                                    }
                                 }
                                 .accessibilityIdentifier("main.add.expense")
 
-                                Button(addIncomeActionTitle) {
+                                Button {
                                     showAddIncome = true
+                                } label: {
+                                    Label {
+                                        Text(addIncomeActionTitle)
+                                    } icon: {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, .green)
+                                    }
                                 }
                                 .accessibilityIdentifier("main.add.income")
                             } label: {
-                                Label(settings.language == .spanish ? "Agregar" : "Add", systemImage: "plus.circle")
-                                    .labelStyle(.iconOnly)
+                                Image(systemName: "plus.circle")
                             }
-                            .accessibilityLabel(settings.language == .spanish ? "Agregar" : "Add")
                             .accessibilityIdentifier("main.add.menu")
                         }
                     }
@@ -122,21 +136,14 @@ struct MainTabView: View {
                         }
                         .environmentObject(settings)
                     }
-                    .alert(settings.t("main.editBudgetTitle"), isPresented: $showBudgetEditAlert) {
-                        MoneyTextField(
-                            title: settings.t("main.editBudgetPlaceholder"),
-                            text: $budgetInput,
-                            accessibilityIdentifier: "main.budgetInput"
-                        )
-                        .keyboardType(.numberPad)
-
-                        Button(settings.t("common.cancel"), role: .cancel) { }
-
-                        Button(settings.t("common.save")) {
+                    .sheet(isPresented: $showBudgetEditAlert) {
+                        BudgetEditSheetView(initialValue: budgetInput) { newValue in
+                            budgetInput = newValue
                             saveBudgetInline()
                         }
-                    } message: {
-                        Text(settings.t("main.editBudgetMessage"))
+                        .environmentObject(settings)
+                        .presentationDetents([.height(240)])
+                        .presentationDragIndicator(.visible)
                     }
                     .alert(
                         settings.language == .spanish ? "Presupuesto inválido" : "Invalid budget",
@@ -306,7 +313,16 @@ struct MainTabView: View {
     }
 
     private func openBudgetEditor() {
-        budgetInput = monthlyBudget.amount > 0 ? String(Int(monthlyBudget.amount)) : ""
+        if monthlyBudget.amount > 0 {
+            budgetInput = MoneyInputFormatter.formatRawForDisplay(
+                String(monthlyBudget.amount),
+                locale: settings.appLocale,
+                maximumFractionDigits: 2
+            )
+        } else {
+            budgetInput = ""
+        }
+
         showBudgetEditAlert = true
     }
 
@@ -367,13 +383,15 @@ struct MainTabView: View {
     }
 
     private func saveBudgetInline() {
-        if let error = FormValidator.validateBudget(budgetInput) {
+        let trimmedInput = budgetInput.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let error = FormValidator.validateBudget(trimmedInput) {
             budgetValidationMessage = error.message(language: settings.language)
             showBudgetValidationAlert = true
             return
         }
 
-        guard let value = FormValidator.normalizedPositiveAmount(from: budgetInput) else {
+        guard let value = FormValidator.normalizedPositiveAmount(from: trimmedInput) else {
             budgetValidationMessage = settings.language == .spanish
             ? "Ingresa un presupuesto válido mayor que cero."
             : "Enter a valid budget greater than zero."
@@ -383,6 +401,8 @@ struct MainTabView: View {
 
         monthlyBudget = MonthlyBudget(amount: value)
         DataManager.shared.saveMonthlyBudget(monthlyBudget, user: auth.currentUser)
+
+        showBudgetEditAlert = false
 
         refreshInsight()
         evaluateBudgetNotifications()
