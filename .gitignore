@@ -1,15 +1,34 @@
-# macOS
+# macOS Finder / zip metadata
 .DS_Store
+.AppleDouble
+.LSOverride
+__MACOSX/
+._*
+
+# temp / editor junk
+*.swp
+*.swo
+*.tmp
+*.bak
+*.orig
 
 # Xcode local/user data
 xcuserdata/
 *.xcuserstate
 *.pbxuser
 *.xcscmblueprint
+*.moved-aside
+*.mode1v3
+*.mode2v3
+*.perspectivev3
 
 # build artifacts
 DerivedData/
 .build/
+Build/
+*.ipa
+*.dSYM
+*.dSYM.zip
 
-# local backups
-*.bak
+# SwiftPM / misc
+.swiftpm/
