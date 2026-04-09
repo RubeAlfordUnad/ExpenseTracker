@@ -62,6 +62,7 @@ struct Income: Identifiable, Codable, Equatable {
     var date: Date
     var category: IncomeCategory
     var customCategoryName: String?
+    var moneyAccountId: UUID?
     var comment: String?
 
     init(
@@ -71,6 +72,7 @@ struct Income: Identifiable, Codable, Equatable {
         date: Date,
         category: IncomeCategory,
         customCategoryName: String? = nil,
+        moneyAccountId: UUID? = nil,
         comment: String? = nil
     ) {
         self.id = id
@@ -79,6 +81,7 @@ struct Income: Identifiable, Codable, Equatable {
         self.date = date
         self.category = category
         self.customCategoryName = Self.normalizedText(customCategoryName)
+        self.moneyAccountId = moneyAccountId
         self.comment = Self.normalizedText(comment)
     }
 

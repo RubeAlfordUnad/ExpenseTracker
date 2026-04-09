@@ -118,6 +118,7 @@ struct Expense: Identifiable, Codable {
     var date: Date
     var category: Category
     var customCategoryName: String?
+    var moneyAccountId: UUID?
     var comment: String?
 
     init(
@@ -127,6 +128,7 @@ struct Expense: Identifiable, Codable {
         date: Date,
         category: Category,
         customCategoryName: String? = nil,
+        moneyAccountId: UUID? = nil,
         comment: String? = nil
     ) {
         self.id = id
@@ -135,6 +137,7 @@ struct Expense: Identifiable, Codable {
         self.date = date
         self.category = category
         self.customCategoryName = Self.normalizedText(customCategoryName)
+        self.moneyAccountId = moneyAccountId
         self.comment = Self.normalizedText(comment)
     }
 

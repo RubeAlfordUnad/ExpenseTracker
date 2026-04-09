@@ -129,6 +129,15 @@ struct SettingsView: View {
                         title: settings.language == .spanish ? "Categorías personalizadas de ingresos" : "Custom income categories",
                         subtitle: settings.language == .spanish ? "Gestiona nombres reutilizables para ingresos" : "Manage reusable names for income"
                     )
+                    NavigationLink {
+                        CustomCategoriesSettingsView(mode: .moneyAccount)
+                    } label: {
+                        settingRow(
+                            icon: "wallet.pass",
+                            title: settings.language == .spanish ? "Categorías personalizadas de cuentas" : "Custom money account categories",
+                            subtitle: settings.language == .spanish ? "Gestiona nombres reutilizables para efectivo, ahorros y otras cuentas" : "Manage reusable names for cash, savings, and other accounts"
+                        )
+                    }
                 }
             } header: {
                 Text(settings.language == .spanish ? "Datos" : "Data")

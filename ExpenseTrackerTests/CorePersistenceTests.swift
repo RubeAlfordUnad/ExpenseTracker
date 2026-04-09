@@ -61,7 +61,7 @@ struct CorePersistenceTests {
         #expect(DataManager.shared.loadExpenses(user: makeUniqueUsername("empty")).isEmpty)
     }
 
-    @Test("DataManager guarda deudas, pagos fijos y presupuesto")
+    @Test("DataManager guarda deudas, pagos fijos, cuentas de dinero y presupuesto")
     func dataManager_saves_wallet_and_budget_data() {
         let user = makeUniqueUsername("wallet")
 
@@ -94,20 +94,31 @@ struct CorePersistenceTests {
             )
         ]
 
+        let moneyAccounts = [
+            MoneyAccount(name: "Efectivo", balance: 180000, kind: .cash),
+            MoneyAccount(name: "Nequi", balance: 920000, kind: .digitalWallet),
+            MoneyAccount(name: "Ahorros viaje", balance: 2100000, kind: .savings, includeInAvailableTotal: false)
+        ]
+
         let budget = MonthlyBudget(amount: 3500000)
 
         DataManager.shared.saveDebts(debts, user: user)
         DataManager.shared.saveRecurringPayments(recurring, user: user)
+        DataManager.shared.saveMoneyAccounts(moneyAccounts, user: user)
         DataManager.shared.saveMonthlyBudget(budget, user: user)
 
         let loadedDebts = DataManager.shared.loadDebts(user: user)
         let loadedRecurring = DataManager.shared.loadRecurringPayments(user: user)
+        let loadedMoneyAccounts = DataManager.shared.loadMoneyAccounts(user: user)
         let loadedBudget = DataManager.shared.loadMonthlyBudget(user: user)
 
         #expect(loadedDebts.count == 2)
         #expect(loadedDebts.map(\.cardName) == ["Visa Gold", "Master Blue"])
         #expect(loadedRecurring.count == 2)
         #expect(loadedRecurring.map(\.title) == ["Internet", "Gym"])
+        #expect(loadedMoneyAccounts.count == 3)
+        #expect(loadedMoneyAccounts.map(\.name) == ["Ahorros viaje", "Efectivo", "Nequi"])
+        #expect(loadedMoneyAccounts.first(where: { $0.name == "Ahorros viaje" })?.includeInAvailableTotal == false)
         #expect(loadedBudget?.amount == 3500000)
     }
 
@@ -160,7 +171,6 @@ struct CorePersistenceTests {
         #expect(DataManager.shared.loadProfileImageData(user: user) == nil)
     }
 
-
     @Test("La foto de perfil migra desde UserDefaults legado al almacenamiento en archivo")
     func profileImage_legacy_storage_migrates_to_file_storage() {
         let user = makeUniqueUsername("photoMigration")
@@ -193,13 +203,16 @@ struct CorePersistenceTests {
         DataManager.shared.saveExpenses([
             Expense(title: "Taxi", amount: 12000, date: makeDate(year: 2026, month: 3, day: 4), category: .transport)
         ], user: username)
+        DataManager.shared.saveMoneyAccounts([
+            MoneyAccount(name: "Caja menor", balance: 50000, kind: .cash)
+        ], user: username)
         DataManager.shared.saveMonthlyBudget(MonthlyBudget(amount: 300000), user: username)
         DataManager.shared.saveProfileImageData(Data([0x10, 0x20, 0x30]), user: username)
         DataManager.shared.saveNotificationPreferences(
             NotificationPreferences(
                 recurringPaymentsEnabled: true,
                 budgetAlertsEnabled: true,
-                budgetAlertThreshold: 0.80,
+                budgetAlertThreshold: 0.80
             ),
             user: username
         )
@@ -208,11 +221,11 @@ struct CorePersistenceTests {
         #expect(!auth.isLoggedIn)
         #expect(auth.currentUser.isEmpty)
         #expect(DataManager.shared.loadExpenses(user: username).isEmpty)
+        #expect(DataManager.shared.loadMoneyAccounts(user: username).isEmpty)
         #expect(DataManager.shared.loadMonthlyBudget(user: username) == nil)
         #expect(DataManager.shared.loadProfileImageData(user: username) == nil)
         #expect(UserDefaults.standard.string(forKey: "session_key") == nil)
         #expect(!((UserDefaults.standard.stringArray(forKey: "registered_usernames_key") ?? []).contains(username)))
         #expect(KeychainManager.shared.readPassword(for: username) == nil)
     }
-
 }

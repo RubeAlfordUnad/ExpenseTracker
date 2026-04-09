@@ -45,9 +45,12 @@ func clearAppStorage(for usernames: [String] = []) {
 
         let scopedKeys = [
             "profileImage_\(user)",
+            "profileDisplayName_\(user)",
             "expenses_\(user)",
+            "incomes_\(user)",
             "debts_\(user)",
             "recurringPayments_\(user)",
+            "moneyAccounts_\(user)",
             "monthlyBudget_\(user)",
             "notificationPreferences_\(user)",
             "budgetAlertState_\(user)",

@@ -123,4 +123,85 @@ struct ModelAndServiceTests {
 
         #expect(decoded == original)
     }
+
+    @Test("AppBackupSnapshot soporta respaldos viejos sin cuentas de dinero")
+    func appBackupSnapshot_decodes_legacy_payload_without_money_accounts() throws {
+        let json = """
+        {
+          "version": 1,
+          "exportedAt": "2026-04-06T10:00:00Z",
+          "sourceUser": "legacy_user",
+          "expenses": [],
+          "incomes": [],
+          "debts": [],
+          "recurringPayments": [],
+          "monthlyBudget": { "amount": 900000 },
+          "notificationPreferences": {
+            "recurringPaymentsEnabled": true,
+            "budgetAlertsEnabled": true,
+            "budgetAlertThreshold": 0.8
+          }
+        }
+        """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let snapshot = try decoder.decode(AppBackupSnapshot.self, from: Data(json.utf8))
+
+        #expect(snapshot.version == 1)
+        #expect(snapshot.moneyAccounts.isEmpty)
+        #expect(snapshot.monthlyBudget?.amount == 900000)
+    }
+
+    @Test("AppBackupService restaura cuentas de dinero y presupuesto")
+    func appBackupService_restores_money_accounts_and_budget() throws {
+        let user = makeUniqueUsername("backupRestore")
+        clearAppStorage(for: [user])
+        defer { clearAppStorage(for: [user]) }
+
+        let service = AppBackupService()
+        let snapshot = AppBackupSnapshot(
+            version: 2,
+            exportedAt: makeDate(year: 2026, month: 4, day: 6),
+            sourceUser: "source_user",
+            expenses: [
+                Expense(title: "Mercado", amount: 120000, date: makeDate(year: 2026, month: 4, day: 2), category: .food)
+            ],
+            incomes: [
+                Income(title: "Salario", amount: 3500000, date: makeDate(year: 2026, month: 4, day: 1), category: .salary)
+            ],
+            debts: [],
+            recurringPayments: [],
+            moneyAccounts: [
+                MoneyAccount(name: "Efectivo", balance: 250000, kind: .cash),
+                MoneyAccount(name: "Ahorros", balance: 1800000, kind: .savings, includeInAvailableTotal: false)
+            ],
+            monthlyBudget: MonthlyBudget(amount: 1400000),
+            notificationPreferences: NotificationPreferences(
+                recurringPaymentsEnabled: true,
+                recurringReminderLeadDays: 1,
+                budgetAlertsEnabled: true,
+                budgetAlertThreshold: 0.7,
+                dailySummaryEnabled: true
+            ),
+            profileImageData: nil,
+            profileDisplayName: "Rube"
+        )
+
+        try service.restore(snapshot, to: user)
+
+        let restoredAccounts = DataManager.shared.loadMoneyAccounts(user: user)
+        let restoredBudget = DataManager.shared.loadMonthlyBudget(user: user)
+        let restoredExpenses = DataManager.shared.loadExpenses(user: user)
+        let restoredIncomes = DataManager.shared.loadIncomes(user: user)
+
+        #expect(restoredAccounts.count == 2)
+        #expect(restoredAccounts.map(\.name) == ["Ahorros", "Efectivo"])
+        #expect(restoredAccounts.first(where: { $0.name == "Ahorros" })?.includeInAvailableTotal == false)
+        #expect(restoredBudget?.amount == 1400000)
+        #expect(restoredExpenses.count == 1)
+        #expect(restoredIncomes.count == 1)
+        #expect(DataManager.shared.loadProfileDisplayName(user: user) == "Rube")
+    }
 }

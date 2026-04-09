@@ -10,10 +10,75 @@ struct AppBackupSnapshot: Codable {
     let incomes: [Income]
     let debts: [Debt]
     let recurringPayments: [RecurringPayment]
+    let moneyAccounts: [MoneyAccount]
+    let accountTransfers: [AccountTransfer]
     let monthlyBudget: MonthlyBudget?
     let notificationPreferences: NotificationPreferences
     let profileImageData: Data?
     let profileDisplayName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case exportedAt
+        case sourceUser
+        case expenses
+        case incomes
+        case debts
+        case recurringPayments
+        case moneyAccounts
+        case accountTransfers
+        case monthlyBudget
+        case notificationPreferences
+        case profileImageData
+        case profileDisplayName
+    }
+
+    init(
+        version: Int,
+        exportedAt: Date,
+        sourceUser: String,
+        expenses: [Expense],
+        incomes: [Income],
+        debts: [Debt],
+        recurringPayments: [RecurringPayment],
+        moneyAccounts: [MoneyAccount] = [],
+        accountTransfers: [AccountTransfer] = [],
+        monthlyBudget: MonthlyBudget?,
+        notificationPreferences: NotificationPreferences,
+        profileImageData: Data?,
+        profileDisplayName: String?
+    ) {
+        self.version = version
+        self.exportedAt = exportedAt
+        self.sourceUser = sourceUser
+        self.expenses = expenses
+        self.incomes = incomes
+        self.debts = debts
+        self.recurringPayments = recurringPayments
+        self.moneyAccounts = moneyAccounts
+        self.accountTransfers = accountTransfers
+        self.monthlyBudget = monthlyBudget
+        self.notificationPreferences = notificationPreferences
+        self.profileImageData = profileImageData
+        self.profileDisplayName = profileDisplayName
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        exportedAt = try container.decode(Date.self, forKey: .exportedAt)
+        sourceUser = try container.decode(String.self, forKey: .sourceUser)
+        expenses = try container.decodeIfPresent([Expense].self, forKey: .expenses) ?? []
+        incomes = try container.decodeIfPresent([Income].self, forKey: .incomes) ?? []
+        debts = try container.decodeIfPresent([Debt].self, forKey: .debts) ?? []
+        recurringPayments = try container.decodeIfPresent([RecurringPayment].self, forKey: .recurringPayments) ?? []
+        moneyAccounts = try container.decodeIfPresent([MoneyAccount].self, forKey: .moneyAccounts) ?? []
+        accountTransfers = try container.decodeIfPresent([AccountTransfer].self, forKey: .accountTransfers) ?? []
+        monthlyBudget = try container.decodeIfPresent(MonthlyBudget.self, forKey: .monthlyBudget)
+        notificationPreferences = try container.decodeIfPresent(NotificationPreferences.self, forKey: .notificationPreferences) ?? NotificationPreferences()
+        profileImageData = try container.decodeIfPresent(Data.self, forKey: .profileImageData)
+        profileDisplayName = try container.decodeIfPresent(String.self, forKey: .profileDisplayName)
+    }
 }
 
 struct AppBackupSummary {
@@ -21,6 +86,8 @@ struct AppBackupSummary {
     let incomesCount: Int
     let debtsCount: Int
     let recurringPaymentsCount: Int
+    let moneyAccountsCount: Int
+    let accountTransfersCount: Int
     let hasBudget: Bool
     let hasProfileImage: Bool
 }
@@ -62,7 +129,7 @@ enum AppBackupError: LocalizedError {
 
 final class AppBackupService {
 
-    private let currentVersion = 1
+    private let currentVersion = 3
     private let maximumBackupBytes = 12 * 1024 * 1024
     private let maximumRecordsPerCollection = 100_000
     private let maximumSourceUserLength = 80
@@ -83,6 +150,8 @@ final class AppBackupService {
             incomes: DataManager.shared.loadIncomes(user: cleanUser),
             debts: DataManager.shared.loadDebts(user: cleanUser),
             recurringPayments: DataManager.shared.loadRecurringPayments(user: cleanUser),
+            moneyAccounts: DataManager.shared.loadMoneyAccounts(user: cleanUser),
+            accountTransfers: DataManager.shared.loadAccountTransfers(user: cleanUser),
             monthlyBudget: DataManager.shared.loadMonthlyBudget(user: cleanUser),
             notificationPreferences: DataManager.shared.loadNotificationPreferences(user: cleanUser),
             profileImageData: DataManager.shared.loadProfileImageData(user: cleanUser),
@@ -100,6 +169,8 @@ final class AppBackupService {
                 incomesCount: 0,
                 debtsCount: 0,
                 recurringPaymentsCount: 0,
+                moneyAccountsCount: 0,
+                accountTransfersCount: 0,
                 hasBudget: false,
                 hasProfileImage: false
             )
@@ -110,6 +181,8 @@ final class AppBackupService {
             incomesCount: DataManager.shared.loadIncomes(user: cleanUser).count,
             debtsCount: DataManager.shared.loadDebts(user: cleanUser).count,
             recurringPaymentsCount: DataManager.shared.loadRecurringPayments(user: cleanUser).count,
+            moneyAccountsCount: DataManager.shared.loadMoneyAccounts(user: cleanUser).count,
+            accountTransfersCount: DataManager.shared.loadAccountTransfers(user: cleanUser).count,
             hasBudget: normalizedBudget(DataManager.shared.loadMonthlyBudget(user: cleanUser)) != nil,
             hasProfileImage: sanitizedProfileImageData(DataManager.shared.loadProfileImageData(user: cleanUser)) != nil
         )
@@ -121,6 +194,8 @@ final class AppBackupService {
             incomesCount: snapshot.incomes.count,
             debtsCount: snapshot.debts.count,
             recurringPaymentsCount: snapshot.recurringPayments.count,
+            moneyAccountsCount: snapshot.moneyAccounts.count,
+            accountTransfersCount: snapshot.accountTransfers.count,
             hasBudget: normalizedBudget(snapshot.monthlyBudget) != nil,
             hasProfileImage: sanitizedProfileImageData(snapshot.profileImageData) != nil
         )
@@ -181,6 +256,8 @@ final class AppBackupService {
         DataManager.shared.saveIncomes(validated.incomes, user: cleanUser)
         DataManager.shared.saveDebts(validated.debts, user: cleanUser)
         DataManager.shared.saveRecurringPayments(validated.recurringPayments, user: cleanUser)
+        DataManager.shared.saveMoneyAccounts(validated.moneyAccounts, user: cleanUser)
+        DataManager.shared.saveAccountTransfers(validated.accountTransfers, user: cleanUser)
         DataManager.shared.saveMonthlyBudget(validated.monthlyBudget ?? MonthlyBudget(amount: 0), user: cleanUser)
         DataManager.shared.saveNotificationPreferences(validated.notificationPreferences, user: cleanUser)
         DataManager.shared.saveBudgetAlertState(BudgetAlertState(), user: cleanUser)
@@ -208,6 +285,8 @@ final class AppBackupService {
         try validateIncomes(snapshot.incomes)
         try validateDebts(snapshot.debts)
         try validateRecurringPayments(snapshot.recurringPayments)
+        try validateMoneyAccounts(snapshot.moneyAccounts)
+        try validateAccountTransfers(snapshot.accountTransfers, moneyAccounts: snapshot.moneyAccounts)
 
         let budget = normalizedBudget(snapshot.monthlyBudget)
         let notificationPreferences = sanitizedNotificationPreferences(snapshot.notificationPreferences)
@@ -222,6 +301,8 @@ final class AppBackupService {
             incomes: snapshot.incomes,
             debts: snapshot.debts,
             recurringPayments: snapshot.recurringPayments,
+            moneyAccounts: snapshot.moneyAccounts,
+            accountTransfers: snapshot.accountTransfers,
             monthlyBudget: budget,
             notificationPreferences: notificationPreferences,
             profileImageData: profileImageData,
@@ -291,6 +372,37 @@ final class AppBackupService {
             }
 
             if let year = payment.lastPaidYear, !(1900...3000).contains(year) {
+                throw AppBackupError.invalidSnapshot
+            }
+        }
+    }
+
+    private func validateMoneyAccounts(_ accounts: [MoneyAccount]) throws {
+        guard accounts.count <= maximumRecordsPerCollection else {
+            throw AppBackupError.invalidSnapshot
+        }
+
+        for account in accounts {
+            guard !account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  account.balance.isFinite else {
+                throw AppBackupError.invalidSnapshot
+            }
+        }
+    }
+    
+    private func validateAccountTransfers(_ transfers: [AccountTransfer], moneyAccounts: [MoneyAccount]) throws {
+        guard transfers.count <= maximumRecordsPerCollection else {
+            throw AppBackupError.invalidSnapshot
+        }
+
+        let validAccountIds = Set(moneyAccounts.map(\.id))
+
+        for transfer in transfers {
+            guard transfer.amount.isFinite,
+                  transfer.amount > 0,
+                  transfer.fromAccountId != transfer.toAccountId,
+                  validAccountIds.contains(transfer.fromAccountId),
+                  validAccountIds.contains(transfer.toAccountId) else {
                 throw AppBackupError.invalidSnapshot
             }
         }

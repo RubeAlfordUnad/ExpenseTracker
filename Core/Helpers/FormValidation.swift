@@ -122,6 +122,16 @@ enum FormValidator {
 
         return value
     }
+    
+    static func normalizedSignedAmount(from text: String) -> Double? {
+        let cleaned = normalizedNumericString(from: text)
+
+        guard let value = Double(cleaned), value.isFinite else {
+            return nil
+        }
+
+        return value
+    }
 
     static func normalizedNonNegativeAmount(from text: String) -> Double? {
         let cleaned = normalizedNumericString(from: text)

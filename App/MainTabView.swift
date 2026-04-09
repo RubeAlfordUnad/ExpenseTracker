@@ -9,9 +9,12 @@ struct MainTabView: View {
 
     @State private var expenses: [Expense] = []
     @State private var incomes: [Income] = []
+    @State private var moneyAccounts: [MoneyAccount] = []
+    @State private var accountTransfers: [AccountTransfer] = []
 
     @State private var showAddExpense = false
     @State private var showAddIncome = false
+    @State private var showAddTransfer = false
 
     @State private var monthlyBudget: MonthlyBudget = MonthlyBudget(amount: 0)
 
@@ -19,6 +22,7 @@ struct MainTabView: View {
     @State private var currentInsight: InsightResult?
 
     @State private var showBudgetEditAlert = false
+    @State private var showMoneyAccountsSheet = false
     @State private var budgetInput = ""
 
     @State private var showBudgetValidationAlert = false
@@ -39,6 +43,9 @@ struct MainTabView: View {
     private let backupRestoreDidComplete = Notification.Name("backupRestoreDidComplete")
     private let profileDisplayNameChangedNotification = Notification.Name("profileDisplayNameDidChange")
 
+    private let moneyAccountSync = MoneyAccountBalanceSync()
+    private let moneyAccountTransferSync = MoneyAccountTransferSync()
+
     private var currentMonthExpenses: [Expense] {
         let calendar = Calendar.current
         let now = Date()
@@ -58,6 +65,8 @@ struct MainTabView: View {
                     DashboardView(
                         expenses: $expenses,
                         incomes: $incomes,
+                        moneyAccounts: $moneyAccounts,
+                        transfers: $accountTransfers,
                         monthlyBudget: $monthlyBudget,
                         selectedPhotoItem: $selectedPhotoItem,
                         profileImageData: $profileImageData,
@@ -65,7 +74,10 @@ struct MainTabView: View {
                         onReloadHomeData: reloadHomeData,
                         onPersistExpenses: persistExpenses,
                         onPersistIncomes: persistIncomes,
+                        onPersistMoneyAccounts: persistMoneyAccounts,
+                        onPersistTransfers: persistAccountTransfers,
                         onRequestBudgetEdit: openBudgetEditor,
+                        onRequestAccountsEdit: openMoneyAccountsEditor,
                         onRefreshInsight: refreshInsight,
                         onEvaluateBudgetNotifications: evaluateBudgetNotifications
                     )
@@ -114,6 +126,19 @@ struct MainTabView: View {
                                     }
                                 }
                                 .accessibilityIdentifier("main.add.income")
+
+                                Button {
+                                    showAddTransfer = true
+                                } label: {
+                                    Label {
+                                        Text(addTransferActionTitle)
+                                    } icon: {
+                                        Image(systemName: "arrow.left.arrow.right.circle.fill")
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, .blue)
+                                    }
+                                }
+                                .accessibilityIdentifier("main.add.transfer")
                             } label: {
                                 Image(systemName: "plus.circle")
                             }
@@ -121,20 +146,47 @@ struct MainTabView: View {
                         }
                     }
                     .sheet(isPresented: $showAddExpense) {
-                        AddExpenseView { newExpense in
+                        AddExpenseView(moneyAccounts: moneyAccounts) { newExpense in
                             expenses.append(newExpense)
+                            expenses.sort { $0.date > $1.date }
+
+                            moneyAccountSync.applyNewExpense(newExpense, to: &moneyAccounts)
+
                             persistExpenses()
+                            persistMoneyAccounts()
                             refreshInsight()
                             evaluateBudgetNotifications()
                         }
+                        .environmentObject(auth)
                         .environmentObject(settings)
                     }
                     .sheet(isPresented: $showAddIncome) {
-                        AddIncomeView { newIncome in
+                        AddIncomeView(moneyAccounts: moneyAccounts) { newIncome in
                             incomes.append(newIncome)
+                            incomes.sort { $0.date > $1.date }
+
+                            moneyAccountSync.applyNewIncome(newIncome, to: &moneyAccounts)
+
                             persistIncomes()
+                            persistMoneyAccounts()
+                            refreshInsight()
                         }
+                        .environmentObject(auth)
                         .environmentObject(settings)
+                    }
+                    .sheet(isPresented: $showAddTransfer) {
+                        NavigationStack {
+                            AddTransferView(moneyAccounts: moneyAccounts) { newTransfer in
+                                accountTransfers.append(newTransfer)
+                                accountTransfers.sort { $0.date > $1.date }
+
+                                moneyAccountTransferSync.applyNewTransfer(newTransfer, accounts: &moneyAccounts)
+
+                                persistAccountTransfers()
+                                persistMoneyAccounts()
+                            }
+                            .environmentObject(settings)
+                        }
                     }
                     .sheet(isPresented: $showBudgetEditAlert) {
                         BudgetEditSheetView(initialValue: budgetInput) { newValue in
@@ -144,6 +196,14 @@ struct MainTabView: View {
                         .environmentObject(settings)
                         .presentationDetents([.height(240)])
                         .presentationDragIndicator(.visible)
+                    }
+                    .sheet(isPresented: $showMoneyAccountsSheet) {
+                        MoneyAccountsSheetView(accounts: moneyAccounts) { updatedAccounts in
+                            moneyAccounts = updatedAccounts
+                            persistMoneyAccounts()
+                        }
+                        .environmentObject(auth)
+                        .environmentObject(settings)
                     }
                     .alert(
                         settings.language == .spanish ? "Presupuesto inválido" : "Invalid budget",
@@ -190,6 +250,7 @@ struct MainTabView: View {
                 ExpenseHistoryView(
                     expenses: $expenses,
                     incomes: $incomes,
+                    moneyAccounts: $moneyAccounts,
                     onPersistExpenses: {
                         persistExpenses()
                         refreshInsight()
@@ -198,11 +259,32 @@ struct MainTabView: View {
                     onPersistIncomes: {
                         persistIncomes()
                         refreshInsight()
+                    },
+                    onPersistMoneyAccounts: {
+                        persistMoneyAccounts()
                     }
                 )
+                .environmentObject(auth)
                 .environmentObject(settings)
                 .tabItem {
                     Label(historyTabTitle, systemImage: "clock.arrow.circlepath")
+                }
+
+                NavigationStack {
+                    TransfersView(
+                        transfers: $accountTransfers,
+                        moneyAccounts: $moneyAccounts,
+                        onPersistTransfers: {
+                            persistAccountTransfers()
+                        },
+                        onPersistMoneyAccounts: {
+                            persistMoneyAccounts()
+                        }
+                    )
+                    .environmentObject(settings)
+                }
+                .tabItem {
+                    Label(transferTabTitle, systemImage: "arrow.left.arrow.right")
                 }
 
                 DebtsView()
@@ -294,6 +376,8 @@ struct MainTabView: View {
     private func reloadHomeData() {
         expenses = DataManager.shared.loadExpenses(user: auth.currentUser)
         incomes = DataManager.shared.loadIncomes(user: auth.currentUser)
+        moneyAccounts = DataManager.shared.loadMoneyAccounts(user: auth.currentUser)
+        accountTransfers = DataManager.shared.loadAccountTransfers(user: auth.currentUser)
         monthlyBudget = DataManager.shared.loadMonthlyBudget(user: auth.currentUser) ?? MonthlyBudget(amount: 0)
         profileImageData = DataManager.shared.loadProfileImageData(user: auth.currentUser)
         profileDisplayName = DataManager.shared.loadProfileDisplayName(user: auth.currentUser) ?? ""
@@ -304,12 +388,28 @@ struct MainTabView: View {
         evaluateBudgetNotifications()
     }
 
+    private func persistAccountTransfers() {
+        DataManager.shared.saveAccountTransfers(accountTransfers, user: auth.currentUser)
+    }
+
+    private var transferTabTitle: String {
+        settings.language == .spanish ? "Transferencias" : "Transfers"
+    }
+
+    private var addTransferActionTitle: String {
+        settings.language == .spanish ? "Agregar transferencia" : "Add transfer"
+    }
+
     private func persistExpenses() {
         DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
     }
 
     private func persistIncomes() {
         DataManager.shared.saveIncomes(incomes, user: auth.currentUser)
+    }
+
+    private func persistMoneyAccounts() {
+        DataManager.shared.saveMoneyAccounts(moneyAccounts, user: auth.currentUser)
     }
 
     private func openBudgetEditor() {
@@ -324,6 +424,10 @@ struct MainTabView: View {
         }
 
         showBudgetEditAlert = true
+    }
+
+    private func openMoneyAccountsEditor() {
+        showMoneyAccountsSheet = true
     }
 
     private func refreshInsight() {

@@ -55,6 +55,30 @@ final class TransactionCustomizationStore {
 
         encode(normalized, forKey: incomeCustomCategoriesKey(for: cleanUser))
     }
+    
+    // MARK: - Money Account Categories
+
+    func loadMoneyAccountCustomCategories(user: String) -> [CustomMoneyAccountCategory] {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return [] }
+
+        let items = decode([CustomMoneyAccountCategory].self, forKey: moneyAccountCustomCategoriesKey(for: cleanUser)) ?? []
+        return normalizedMoneyAccountCustomCategories(items)
+    }
+
+    func saveMoneyAccountCustomCategories(_ items: [CustomMoneyAccountCategory], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        let normalized = normalizedMoneyAccountCustomCategories(items)
+
+        if normalized.isEmpty {
+            defaults.removeObject(forKey: moneyAccountCustomCategoriesKey(for: cleanUser))
+            return
+        }
+
+        encode(normalized, forKey: moneyAccountCustomCategoriesKey(for: cleanUser))
+    }
 
     // MARK: - Expense Metadata
 
@@ -165,11 +189,13 @@ final class TransactionCustomizationStore {
         guard !cleanUser.isEmpty else { return }
 
         [
-            expenseCustomCategoriesKey(for: cleanUser),
-            incomeCustomCategoriesKey(for: cleanUser),
-            expenseMetadataKey(for: cleanUser),
-            incomeMetadataKey(for: cleanUser)
-        ].forEach { defaults.removeObject(forKey: $0) }
+                expenseCustomCategoriesKey(for: cleanUser),
+                incomeCustomCategoriesKey(for: cleanUser),
+                moneyAccountCustomCategoriesKey(for: cleanUser),
+                expenseMetadataKey(for: cleanUser),
+                incomeMetadataKey(for: cleanUser)
+        ]
+            .forEach { defaults.removeObject(forKey: $0) }
     }
 
     // MARK: - Helpers
@@ -177,6 +203,10 @@ final class TransactionCustomizationStore {
     private struct StoredExpenseMetadata: Codable {
         let customCategoryName: String?
         let comment: String?
+    }
+    
+    private func moneyAccountCustomCategoriesKey(for user: String) -> String {
+        "moneyAccountCustomCategories_\(user)"
     }
 
     private struct StoredIncomeMetadata: Codable {
@@ -226,6 +256,23 @@ final class TransactionCustomizationStore {
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    private func normalizedMoneyAccountCustomCategories(_ items: [CustomMoneyAccountCategory]) -> [CustomMoneyAccountCategory] {
+        var seen: Set<String> = []
+
+        return items.compactMap { item in
+            let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { return nil }
+
+            seen.insert(key)
+            return CustomMoneyAccountCategory(id: item.id, name: trimmed, style: item.style)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+    
+    
     private func normalizedIncomeCustomCategories(_ items: [CustomIncomeCategory]) -> [CustomIncomeCategory] {
         var seen: Set<String> = []
 

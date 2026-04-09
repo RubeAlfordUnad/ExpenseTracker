@@ -19,6 +19,8 @@ final class PersistenceController {
         StoredIncome.self,
         StoredDebt.self,
         StoredRecurringPayment.self,
+        StoredMoneyAccount.self,
+        StoredAccountTransfer.self,
         StoredMonthlyBudget.self
     ])
 

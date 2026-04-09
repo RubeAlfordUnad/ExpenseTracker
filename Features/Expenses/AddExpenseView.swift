@@ -15,13 +15,26 @@ struct AddExpenseView: View {
     @State private var customCategories: [CustomExpenseCategory] = []
     @State private var showValidationAlert = false
     @State private var showManageCategories = false
+    @State private var selectedMoneyAccountId: UUID?
 
     let existingExpense: Expense?
-    var onSave: (Expense) -> Void
+    let moneyAccounts: [MoneyAccount]
+    let onSave: (Expense) -> Void
 
-    init(existingExpense: Expense? = nil, onSave: @escaping (Expense) -> Void) {
+    init(
+        existingExpense: Expense? = nil,
+        moneyAccounts: [MoneyAccount] = [],
+        onSave: @escaping (Expense) -> Void
+    ) {
         self.existingExpense = existingExpense
+        self.moneyAccounts = moneyAccounts.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
         self.onSave = onSave
+
+        let validExistingAccountId = existingExpense?.moneyAccountId.flatMap { existingId in
+            moneyAccounts.contains(where: { $0.id == existingId }) ? existingId : nil
+        }
 
         _title = State(initialValue: existingExpense?.title ?? "")
         _amount = State(initialValue: existingExpense.map { Self.makeAmountText($0.amount) } ?? "")
@@ -29,6 +42,7 @@ struct AddExpenseView: View {
         _customCategoryName = State(initialValue: existingExpense?.customCategoryName ?? "")
         _comment = State(initialValue: existingExpense?.comment ?? "")
         _expenseDate = State(initialValue: existingExpense?.date ?? Date())
+        _selectedMoneyAccountId = State(initialValue: validExistingAccountId)
     }
 
     private var validationError: FormValidationError? {
@@ -121,6 +135,34 @@ struct AddExpenseView: View {
                     }
                 } header: {
                     Text(settings.t("expense.category"))
+                }
+
+                if !moneyAccounts.isEmpty {
+                    Section {
+                        Picker(
+                            settings.language == .spanish ? "Sale de" : "Comes from",
+                            selection: $selectedMoneyAccountId
+                        ) {
+                            Text(settings.language == .spanish ? "Sin cuenta" : "No account")
+                                .tag(nil as UUID?)
+
+                            ForEach(moneyAccounts) { account in
+                                Text("\(account.name) · \(settings.secureCurrency(account.balance))")
+                                    .tag(account.id as UUID?)
+                            }
+                        }
+                        .accessibilityIdentifier("expense.account.picker")
+
+                        Text(
+                            settings.language == .spanish
+                            ? "Si eliges una cuenta, al guardar el gasto se descontará automáticamente de ese saldo."
+                            : "If you choose an account, saving the expense will automatically deduct it from that balance."
+                        )
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    } header: {
+                        Text(settings.language == .spanish ? "Cuenta de salida" : "Source account")
+                    }
                 }
 
                 Section {
@@ -225,6 +267,7 @@ struct AddExpenseView: View {
             date: expenseDate,
             category: category,
             customCategoryName: customCategoryName,
+            moneyAccountId: selectedMoneyAccountId,
             comment: comment
         )
 

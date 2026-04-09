@@ -9,6 +9,8 @@ struct DashboardView: View {
 
     @Binding var expenses: [Expense]
     @Binding var incomes: [Income]
+    @Binding var moneyAccounts: [MoneyAccount]
+    @Binding var transfers: [AccountTransfer]
     @Binding var monthlyBudget: MonthlyBudget
     @Binding var selectedPhotoItem: PhotosPickerItem?
     @Binding var profileImageData: Data?
@@ -16,7 +18,10 @@ struct DashboardView: View {
     let onReloadHomeData: () -> Void
     let onPersistExpenses: () -> Void
     let onPersistIncomes: () -> Void
+    let onPersistMoneyAccounts: () -> Void
+    let onPersistTransfers: () -> Void
     let onRequestBudgetEdit: () -> Void
+    let onRequestAccountsEdit: () -> Void
     let onRefreshInsight: () -> Void
     let onEvaluateBudgetNotifications: () -> Void
 
@@ -24,6 +29,11 @@ struct DashboardView: View {
     @State private var recurringPayments: [RecurringPayment] = []
 
     private let calendar = Calendar.current
+    
+    private let dashboardRecentTransfersLimit = 2
+    private let dashboardMoneyAccountLimit = 3
+    private let dashboardUpcomingPaymentsLimit = 2
+    private let dashboardRecentActivityLimit = 2
 
     private var currentMonthExpenses: [Expense] {
         let now = Date()
@@ -88,6 +98,39 @@ struct DashboardView: View {
     private var currentMonthLabel: String {
         settings.monthYearString(from: Date())
     }
+
+    private var sortedMoneyAccounts: [MoneyAccount] {
+        moneyAccounts.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private var totalAvailableFunds: Double {
+        sortedMoneyAccounts
+            .filter(\.includeInAvailableTotal)
+            .reduce(0) { $0 + $1.balance }
+    }
+
+    private var excludedAccountCount: Int {
+        sortedMoneyAccounts.filter { !$0.includeInAvailableTotal }.count
+    }
+    
+    private var recentTransfers: [AccountTransfer] {
+        transfers.sorted { $0.date > $1.date }
+    }
+
+    private var currentMonthTransfers: [AccountTransfer] {
+        let now = Date()
+        let currentMonth = calendar.component(.month, from: now)
+        let currentYear = calendar.component(.year, from: now)
+
+        return transfers.filter {
+            calendar.component(.month, from: $0.date) == currentMonth &&
+            calendar.component(.year, from: $0.date) == currentYear
+        }
+    }
+
+    private var movedBetweenAccountsThisMonth: Double {
+        currentMonthTransfers.reduce(0) { $0 + $1.amount }
+    }
     
     private var effectiveDashboardName: String {
         let trimmed = profileDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -134,18 +177,6 @@ struct DashboardView: View {
         } else {
             return settings.t("main.header.ok")
         }
-    }
-
-    private var incomeCountText: String {
-        settings.language == .spanish
-        ? "\(currentMonthIncomes.count) ingresos"
-        : "\(currentMonthIncomes.count) incomes"
-    }
-
-    private var expenseCountText: String {
-        settings.language == .spanish
-        ? "\(currentMonthExpenses.count) gastos"
-        : "\(currentMonthExpenses.count) expenses"
     }
 
     private var netBalanceColor: Color {
@@ -240,6 +271,8 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 18) {
                 headerSection
                 overviewSection
+                moneyAccountsSection
+                recentTransfersSection
                 budgetProgressSection
                 focusStripSection
                 upcomingPaymentsSection
@@ -389,6 +422,174 @@ struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
+    private var moneyAccountsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settings.language == .spanish ? "Dónde está tu dinero" : "Where your money is")
+                        .font(.headline)
+
+                    Text(
+                        settings.language == .spanish
+                        ? "Separa efectivo, ahorros y otras cuentas sin mezclarlo con el presupuesto."
+                        : "Keep cash, savings, and other balances separate from your budget."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Button(action: onRequestAccountsEdit) {
+                    Image(systemName: sortedMoneyAccounts.isEmpty ? "plus.circle.fill" : "square.and.pencil")
+                        .font(.headline)
+                        .foregroundColor(BrandPalette.primary)
+                        .frame(width: 42, height: 42)
+                        .background(BrandPalette.surfaceRaised)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+
+            if sortedMoneyAccounts.isEmpty {
+                emptyDashboardCard(
+                    title: settings.language == .spanish ? "Aún no agregas fondos manuales" : "You have not added manual funds yet",
+                    subtitle: settings.language == .spanish
+                    ? "Crea cuentas para efectivo, ahorros o billeteras digitales. Esto no reemplaza tu presupuesto mensual."
+                    : "Create accounts for cash, savings, or digital wallets. This does not replace your monthly budget."
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 12) {
+                        summaryMetricCard(
+                            title: settings.language == .spanish ? "Fondos disponibles" : "Available funds",
+                            value: settings.secureCurrency(totalAvailableFunds),
+                            tone: totalAvailableFunds > 0 ? .positive : .muted,
+                            icon: "banknote"
+                        )
+
+                        summaryMetricCard(
+                            title: settings.language == .spanish ? "Cuentas" : "Accounts",
+                            value: "\(sortedMoneyAccounts.count)",
+                            tone: .neutral,
+                            icon: "building.columns"
+                        )
+                    }
+
+                    if excludedAccountCount > 0 {
+                        Text(
+                            settings.language == .spanish
+                            ? "\(excludedAccountCount) cuenta(s) no se incluyen en fondos disponibles."
+                            : "\(excludedAccountCount) account(s) are excluded from available funds."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+
+                    VStack(spacing: 10) {
+                        ForEach(sortedMoneyAccounts.prefix(dashboardMoneyAccountLimit)) { account in
+                            moneyAccountRow(account)
+                        }
+                    }
+
+                    if sortedMoneyAccounts.count > dashboardMoneyAccountLimit {
+                        Text(
+                            settings.language == .spanish
+                            ? "Mostrando \(dashboardMoneyAccountLimit) de \(sortedMoneyAccounts.count) cuentas."
+                            : "Showing \(dashboardMoneyAccountLimit) of \(sortedMoneyAccounts.count) accounts."
+                        )
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .background(BrandPalette.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+    
+    private var recentTransfersSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(settings.language == .spanish ? "Transferencias entre cuentas" : "Transfers between accounts")
+                    .font(.headline)
+
+                Spacer()
+
+                NavigationLink {
+                    TransfersView(
+                        transfers: $transfers,
+                        moneyAccounts: $moneyAccounts,
+                        onPersistTransfers: {
+                            onPersistTransfers()
+                        },
+                        onPersistMoneyAccounts: {
+                            onPersistMoneyAccounts()
+                        }
+                    )
+                    .environmentObject(settings)
+                } label: {
+                    Text(settings.language == .spanish ? "Ver todo" : "See all")
+                        .font(.caption.bold())
+                        .foregroundColor(BrandPalette.primary)
+                }
+            }
+
+            if recentTransfers.isEmpty {
+                emptyDashboardCard(
+                    title: settings.language == .spanish ? "Todavía no hay transferencias" : "No transfers yet",
+                    subtitle: settings.language == .spanish
+                    ? "Usa transferencias para mover saldo entre efectivo, ahorros y otras cuentas sin afectar tu presupuesto."
+                    : "Use transfers to move money between cash, savings, and other accounts without affecting your budget."
+                )
+            } else {
+                HStack(spacing: 12) {
+                    summaryMetricCard(
+                        title: settings.language == .spanish ? "Transferencias del mes" : "Transfers this month",
+                        value: "\(currentMonthTransfers.count)",
+                        tone: .neutral,
+                        icon: "arrow.left.arrow.right"
+                    )
+
+                    summaryMetricCard(
+                        title: settings.language == .spanish ? "Movido este mes" : "Moved this month",
+                        value: settings.secureCurrency(movedBetweenAccountsThisMonth),
+                        tone: movedBetweenAccountsThisMonth > 0 ? .neutral : .muted,
+                        icon: "arrow.triangle.2.circlepath"
+                    )
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(recentTransfers.prefix(dashboardRecentTransfersLimit)) { transfer in
+                        dashboardTransferRow(transfer)
+                    }
+                }
+
+                if recentTransfers.count > dashboardRecentTransfersLimit {
+                    Text(
+                        settings.language == .spanish
+                        ? "Mostrando \(dashboardRecentTransfersLimit) de \(recentTransfers.count) transferencias."
+                        : "Showing \(dashboardRecentTransfersLimit) of \(recentTransfers.count) transfers."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(18)
+        .background(BrandPalette.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
     private var budgetProgressSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -500,9 +701,19 @@ struct DashboardView: View {
                 )
             } else {
                 VStack(spacing: 10) {
-                    ForEach(upcomingRecurringItems.prefix(4)) { item in
+                    ForEach(upcomingRecurringItems.prefix(dashboardUpcomingPaymentsLimit)) { item in
                         upcomingPaymentRow(item)
                     }
+                }
+
+                if upcomingRecurringItems.count > dashboardUpcomingPaymentsLimit {
+                    Text(
+                        settings.language == .spanish
+                        ? "Mostrando \(dashboardUpcomingPaymentsLimit) de \(upcomingRecurringItems.count) pagos."
+                        : "Showing \(dashboardUpcomingPaymentsLimit) of \(upcomingRecurringItems.count) payments."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
             }
         }
@@ -638,6 +849,7 @@ struct DashboardView: View {
                     ExpenseHistoryView(
                         expenses: $expenses,
                         incomes: $incomes,
+                        moneyAccounts: $moneyAccounts,
                         onPersistExpenses: {
                             onPersistExpenses()
                             onRefreshInsight()
@@ -646,8 +858,12 @@ struct DashboardView: View {
                         onPersistIncomes: {
                             onPersistIncomes()
                             onRefreshInsight()
+                        },
+                        onPersistMoneyAccounts: {
+                            onPersistMoneyAccounts()
                         }
                     )
+                    .environmentObject(auth)
                     .environmentObject(settings)
                 } label: {
                     Text(settings.language == .spanish ? "Historial" : "History")
@@ -665,9 +881,19 @@ struct DashboardView: View {
                 )
             } else {
                 VStack(spacing: 10) {
-                    ForEach(recentActivity.prefix(6)) { item in
+                    ForEach(recentActivity.prefix(dashboardRecentActivityLimit)) { item in
                         activityRow(item)
                     }
+                }
+
+                if recentActivity.count > dashboardRecentActivityLimit {
+                    Text(
+                        settings.language == .spanish
+                        ? "Mostrando \(dashboardRecentActivityLimit) de \(recentActivity.count) movimientos."
+                        : "Showing \(dashboardRecentActivityLimit) of \(recentActivity.count) entries."
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
             }
         }
@@ -807,6 +1033,110 @@ struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
+    private func moneyAccountRow(_ account: MoneyAccount) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(account.kind.color.opacity(0.18))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: account.kind.icon)
+                    .foregroundColor(account.kind.color)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(account.name)
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+
+                Text(account.categoryDisplayName(language: settings.language))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+
+                if account.hasCustomCategory {
+                    Text(account.kind.displayName(language: settings.language))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+
+                if !account.includeInAvailableTotal {
+                    Text(settings.language == .spanish ? "Excluida del total disponible" : "Excluded from available total")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Spacer()
+
+            Text(settings.secureCurrency(account.balance))
+                .font(.subheadline.bold())
+                .foregroundColor(account.includeInAvailableTotal ? .primary : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(16)
+        .background(BrandPalette.surfaceRaised)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+    
+    private func dashboardTransferRow(_ transfer: AccountTransfer) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(0.18))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "arrow.left.arrow.right")
+                    .foregroundColor(.blue)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(transferAccountName(transfer.fromAccountId)) → \(transferAccountName(transfer.toAccountId))")
+                    .font(.subheadline.bold())
+                    .lineLimit(1)
+
+                Text(settings.shortDateString(from: transfer.date))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                if let note = transfer.normalizedNote {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            Text(settings.secureCurrency(transfer.amount))
+                .font(.subheadline.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(16)
+        .background(BrandPalette.surfaceRaised)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func transferAccountName(_ id: UUID) -> String {
+        guard let account = moneyAccounts.first(where: { $0.id == id }) else {
+            return settings.language == .spanish ? "Cuenta eliminada" : "Deleted account"
+        }
+
+        return account.name
+    }
+
     private func upcomingPaymentRow(_ item: UpcomingRecurringItem) -> some View {
         HStack(spacing: 14) {
             ZStack {
@@ -843,63 +1173,63 @@ struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-private func activityRow(_ item: DashboardActivityItem) -> some View {
-    HStack(spacing: 14) {
-        ZStack {
-            Circle()
-                .fill(item.tint.opacity(0.18))
-                .frame(width: 44, height: 44)
+    private func activityRow(_ item: DashboardActivityItem) -> some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(item.tint.opacity(0.18))
+                    .frame(width: 44, height: 44)
 
-            Image(systemName: item.icon)
-                .foregroundColor(item.tint)
-        }
-
-        VStack(alignment: .leading, spacing: 3) {
-            Text(item.title)
-                .font(.subheadline.bold())
-                .lineLimit(1)
-
-            Text(item.subtitle)
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .lineLimit(1)
-
-            if let note = item.note, !note.isEmpty {
-                Text(note)
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
+                Image(systemName: item.icon)
+                    .foregroundColor(item.tint)
             }
-        }
 
-        Spacer()
-
-        VStack(alignment: .trailing, spacing: 3) {
-            HStack(spacing: 6) {
-                Image(systemName: item.kind == .income ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
-                    .font(.subheadline)
-                    .foregroundColor(item.kind == .income ? .green : .red)
-
-                Text(item.kind == .income ? "+\(settings.secureCurrency(item.amount))" : "-\(settings.secureCurrency(item.amount))")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
                     .font(.subheadline.bold())
-                    .foregroundColor(item.kind == .income ? .green : .red)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+
+                Text(item.subtitle)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+
+                if let note = item.note, !note.isEmpty {
+                    Text(note)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
             }
 
-            Text(settings.shortDateString(from: item.date))
-                .font(.caption)
-                .foregroundColor(.secondary)
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: item.kind == .income ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                        .font(.subheadline)
+                        .foregroundColor(item.kind == .income ? .green : .red)
+
+                    Text(item.kind == .income ? "+\(settings.secureCurrency(item.amount))" : "-\(settings.secureCurrency(item.amount))")
+                        .font(.subheadline.bold())
+                        .foregroundColor(item.kind == .income ? .green : .red)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+
+                Text(settings.shortDateString(from: item.date))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
         }
+        .padding(16)
+        .background(BrandPalette.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
-    .padding(16)
-    .background(BrandPalette.surface)
-    .overlay(
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .stroke(BrandPalette.stroke, lineWidth: 1)
-    )
-    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-}
 
     private func emptyDashboardCard(title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -919,54 +1249,6 @@ private func activityRow(_ item: DashboardActivityItem) -> some View {
                 .stroke(BrandPalette.stroke, lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-    
-    private func transactionDirectionIcon(for kind: DashboardActivityItem.Kind) -> String {
-        kind == .income ? "arrow.down.circle.fill" : "arrow.up.circle.fill"
-    }
-
-    private func transactionDirectionColor(for kind: DashboardActivityItem.Kind) -> Color {
-        kind == .income ? .green : .red
-    }
-
-    private func signedAmountText(for item: DashboardActivityItem) -> String {
-        item.kind == .income
-        ? "+\(settings.secureCurrency(item.amount))"
-        : "-\(settings.secureCurrency(item.amount))"
-    }
-
-    private func quickActionCard(icon: String, title: String, subtitle: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.headline)
-                .foregroundColor(BrandPalette.primary)
-                .frame(width: 40, height: 40)
-                .background(BrandPalette.primary.opacity(0.12))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.primary)
-
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.caption.bold())
-                .foregroundColor(.secondary)
-        }
-        .padding(16)
-        .background(BrandPalette.surface)
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(BrandPalette.stroke, lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func upcomingLabel(for item: UpcomingRecurringItem) -> String {

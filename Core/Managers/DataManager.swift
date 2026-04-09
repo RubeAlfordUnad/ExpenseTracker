@@ -55,6 +55,14 @@ final class DataManager {
         "recurringPayments_\(user)"
     }
 
+    private func moneyAccountsKey(for user: String) -> String {
+        "moneyAccounts_\(user)"
+    }
+    
+    private func accountTransfersKey(for user: String) -> String {
+        "accountTransfers_\(user)"
+    }
+
     private func budgetKey(for user: String) -> String {
         "monthlyBudget_\(user)"
     }
@@ -144,8 +152,7 @@ final class DataManager {
             legacySave(incomes, forKey: incomesKey(for: cleanUser))
         }
     }
-    
-    
+
     func loadIncomes(user: String) -> [Income] {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return [] }
@@ -173,7 +180,7 @@ final class DataManager {
 
         return TransactionCustomizationStore.shared.mergeIncomeMetadata(into: loaded, user: cleanUser)
     }
-    
+
     // MARK: - Debts
 
     func saveDebts(_ debts: [Debt], user: String) {
@@ -261,6 +268,100 @@ final class DataManager {
         } catch {
             AppLogger.debug("Error cargando pagos recurrentes desde SwiftData: \(error)")
             return legacyLoad([RecurringPayment].self, forKey: recurringPaymentsKey(for: cleanUser)) ?? []
+        }
+    }
+
+    // MARK: - Money Accounts
+
+    func saveMoneyAccounts(_ accounts: [MoneyAccount], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            legacySave(accounts, forKey: moneyAccountsKey(for: cleanUser))
+            return
+        }
+
+        do {
+            let context = makeContext()
+            try replaceMoneyAccounts(accounts, user: cleanUser, context: context)
+            try context.save()
+        } catch {
+            AppLogger.debug("Error guardando cuentas de dinero en SwiftData: \(error)")
+            legacySave(accounts, forKey: moneyAccountsKey(for: cleanUser))
+        }
+    }
+
+    func loadMoneyAccounts(user: String) -> [MoneyAccount] {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return [] }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            return (legacyLoad([MoneyAccount].self, forKey: moneyAccountsKey(for: cleanUser)) ?? [])
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+
+        do {
+            let context = makeContext()
+            let targetUser = cleanUser
+
+            let descriptor = FetchDescriptor<StoredMoneyAccount>(
+                predicate: #Predicate { $0.user == targetUser },
+                sortBy: [SortDescriptor(\StoredMoneyAccount.name)]
+            )
+
+            return try context.fetch(descriptor).map { $0.toMoneyAccount() }
+        } catch {
+            AppLogger.debug("Error cargando cuentas de dinero desde SwiftData: \(error)")
+            return (legacyLoad([MoneyAccount].self, forKey: moneyAccountsKey(for: cleanUser)) ?? [])
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+    }
+    
+    // MARK: - Account Transfers
+
+    func saveAccountTransfers(_ transfers: [AccountTransfer], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            legacySave(transfers, forKey: accountTransfersKey(for: cleanUser))
+            return
+        }
+
+        do {
+            let context = makeContext()
+            try replaceAccountTransfers(transfers, user: cleanUser, context: context)
+            try context.save()
+        } catch {
+            AppLogger.debug("Error guardando transferencias entre cuentas en SwiftData: \(error)")
+            legacySave(transfers, forKey: accountTransfersKey(for: cleanUser))
+        }
+    }
+
+    func loadAccountTransfers(user: String) -> [AccountTransfer] {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return [] }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            return (legacyLoad([AccountTransfer].self, forKey: accountTransfersKey(for: cleanUser)) ?? [])
+                .sorted { $0.date > $1.date }
+        }
+
+        do {
+            let context = makeContext()
+            let targetUser = cleanUser
+
+            let descriptor = FetchDescriptor<StoredAccountTransfer>(
+                predicate: #Predicate { $0.user == targetUser },
+                sortBy: [SortDescriptor(\StoredAccountTransfer.date, order: .reverse)]
+            )
+
+            return try context.fetch(descriptor).map { $0.toAccountTransfer() }
+        } catch {
+            AppLogger.debug("Error cargando transferencias entre cuentas desde SwiftData: \(error)")
+            return (legacyLoad([AccountTransfer].self, forKey: accountTransfersKey(for: cleanUser)) ?? [])
+                .sorted { $0.date > $1.date }
         }
     }
 
@@ -507,6 +608,8 @@ final class DataManager {
             try deleteStoredIncomes(user: cleanUser, context: context)
             try deleteStoredDebts(user: cleanUser, context: context)
             try deleteStoredRecurringPayments(user: cleanUser, context: context)
+            try deleteStoredMoneyAccounts(user: cleanUser, context: context)
+            try deleteStoredAccountTransfers(user: cleanUser, context: context)
             try deleteStoredMonthlyBudget(user: cleanUser, context: context)
             try context.save()
         } catch {
@@ -524,6 +627,8 @@ final class DataManager {
             incomesKey(for: cleanUser),
             debtsKey(for: cleanUser),
             recurringPaymentsKey(for: cleanUser),
+            moneyAccountsKey(for: cleanUser),
+            accountTransfersKey(for: cleanUser),
             budgetKey(for: cleanUser),
             notificationPreferencesKey(for: cleanUser),
             budgetAlertStateKey(for: cleanUser),
@@ -550,33 +655,43 @@ final class DataManager {
 
         do {
             let context = makeContext()
-
+            
             if let legacyExpenses: [Expense] = legacyLoad([Expense].self, forKey: expensesKey(for: cleanUser)) {
                 try replaceExpenses(legacyExpenses, user: cleanUser, context: context)
             }
-
+            
             if let legacyIncomes: [Income] = legacyLoad([Income].self, forKey: incomesKey(for: cleanUser)) {
                 try replaceIncomes(legacyIncomes, user: cleanUser, context: context)
             }
-
+            
             if let legacyDebts: [Debt] = legacyLoad([Debt].self, forKey: debtsKey(for: cleanUser)) {
                 try replaceDebts(legacyDebts, user: cleanUser, context: context)
             }
-
+            
             if let legacyPayments: [RecurringPayment] = legacyLoad([RecurringPayment].self, forKey: recurringPaymentsKey(for: cleanUser)) {
                 try replaceRecurringPayments(legacyPayments, user: cleanUser, context: context)
             }
-
+            
+            if let legacyMoneyAccounts: [MoneyAccount] = legacyLoad([MoneyAccount].self, forKey: moneyAccountsKey(for: cleanUser)) {
+                try replaceMoneyAccounts(legacyMoneyAccounts, user: cleanUser, context: context)
+            }
+            
+            if let legacyAccountTransfers: [AccountTransfer] = legacyLoad([AccountTransfer].self, forKey: accountTransfersKey(for: cleanUser)) {
+                try replaceAccountTransfers(legacyAccountTransfers, user: cleanUser, context: context)
+            }
+            
             if let legacyBudget: MonthlyBudget = legacyLoad(MonthlyBudget.self, forKey: budgetKey(for: cleanUser)) {
                 try upsertMonthlyBudget(legacyBudget, user: cleanUser, context: context)
             }
-
+            
             try context.save()
-
+            
             defaults.removeObject(forKey: expensesKey(for: cleanUser))
+            defaults.removeObject(forKey: accountTransfersKey(for: cleanUser))
             defaults.removeObject(forKey: incomesKey(for: cleanUser))
             defaults.removeObject(forKey: debtsKey(for: cleanUser))
             defaults.removeObject(forKey: recurringPaymentsKey(for: cleanUser))
+            defaults.removeObject(forKey: moneyAccountsKey(for: cleanUser))
             defaults.removeObject(forKey: budgetKey(for: cleanUser))
             defaults.set(true, forKey: migrationKey)
 
@@ -625,6 +740,31 @@ final class DataManager {
         }
     }
 
+    private func replaceMoneyAccounts(_ accounts: [MoneyAccount], user: String, context: ModelContext) throws {
+        try deleteStoredMoneyAccounts(user: user, context: context)
+
+        for account in accounts {
+            context.insert(StoredMoneyAccount(account: account, user: user))
+        }
+    }
+    
+    private func replaceAccountTransfers(_ transfers: [AccountTransfer], user: String, context: ModelContext) throws {
+        try deleteStoredAccountTransfers(user: user, context: context)
+
+        for transfer in transfers {
+            context.insert(StoredAccountTransfer(transfer: transfer, user: user))
+        }
+    }
+
+    private func deleteStoredAccountTransfers(user: String, context: ModelContext) throws {
+        let targetUser = user
+        let descriptor = FetchDescriptor<StoredAccountTransfer>(
+            predicate: #Predicate { $0.user == targetUser }
+        )
+
+        try context.fetch(descriptor).forEach { context.delete($0) }
+    }
+
     private func upsertMonthlyBudget(_ budget: MonthlyBudget, user: String, context: ModelContext) throws {
         let targetUser = user
         var descriptor = FetchDescriptor<StoredMonthlyBudget>(
@@ -669,6 +809,15 @@ final class DataManager {
     private func deleteStoredRecurringPayments(user: String, context: ModelContext) throws {
         let targetUser = user
         let descriptor = FetchDescriptor<StoredRecurringPayment>(
+            predicate: #Predicate { $0.user == targetUser }
+        )
+
+        try context.fetch(descriptor).forEach { context.delete($0) }
+    }
+
+    private func deleteStoredMoneyAccounts(user: String, context: ModelContext) throws {
+        let targetUser = user
+        let descriptor = FetchDescriptor<StoredMoneyAccount>(
             predicate: #Predicate { $0.user == targetUser }
         )
 

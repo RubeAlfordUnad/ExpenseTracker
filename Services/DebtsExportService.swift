@@ -1,10 +1,3 @@
-//
-//  DebtsExportService.swift
-//  ExpenseTracker
-//
-//  Created by Ruben Alford on 20/03/26.
-//
-
 import Foundation
 import UniformTypeIdentifiers
 

@@ -7,9 +7,11 @@ struct ExpenseHistoryView: View {
 
     @Binding var expenses: [Expense]
     @Binding var incomes: [Income]
+    @Binding var moneyAccounts: [MoneyAccount]
 
     let onPersistExpenses: () -> Void
     let onPersistIncomes: () -> Void
+    let onPersistMoneyAccounts: () -> Void
 
     @State private var selectedYear = Calendar.current.component(.year, from: Date())
     @State private var selectedMonth = Calendar.current.component(.month, from: Date())
@@ -33,6 +35,7 @@ struct ExpenseHistoryView: View {
     @State private var errorMessage: String?
 
     private let calendar = Calendar.current
+    private let moneyAccountSync = MoneyAccountBalanceSync()
     private let transferService = ExpensesTransferService()
 
     private enum HistoryTab: String, CaseIterable, Identifiable {
@@ -472,13 +475,13 @@ struct ExpenseHistoryView: View {
                 normalizeLedgerFiltersIfNeeded()
             }
             .sheet(item: $editingExpense) { expense in
-                AddExpenseView(existingExpense: expense) { updatedExpense in
+                AddExpenseView(existingExpense: expense, moneyAccounts: moneyAccounts) { updatedExpense in
                     updateExpense(updatedExpense)
                 }
                 .environmentObject(settings)
             }
             .sheet(item: $editingIncome) { income in
-                AddIncomeView(existingIncome: income) { updatedIncome in
+                AddIncomeView(existingIncome: income, moneyAccounts: moneyAccounts) { updatedIncome in
                     updateIncome(updatedIncome)
                 }
                 .environmentObject(settings)
@@ -1362,9 +1365,14 @@ struct ExpenseHistoryView: View {
             return
         }
 
+        let previousExpense = expenses[index]
         expenses[index] = updatedExpense
         expenses.sort { $0.date > $1.date }
+
+        moneyAccountSync.applyExpenseUpdate(from: previousExpense, to: updatedExpense, accounts: &moneyAccounts)
+
         onPersistExpenses()
+        onPersistMoneyAccounts()
         configureInitialSelection()
         normalizeLedgerFiltersIfNeeded()
     }
@@ -1374,23 +1382,34 @@ struct ExpenseHistoryView: View {
             return
         }
 
+        let previousIncome = incomes[index]
         incomes[index] = updatedIncome
         incomes.sort { $0.date > $1.date }
+
+        moneyAccountSync.applyIncomeUpdate(from: previousIncome, to: updatedIncome, accounts: &moneyAccounts)
+
         onPersistIncomes()
+        onPersistMoneyAccounts()
         configureInitialSelection()
         normalizeLedgerFiltersIfNeeded()
     }
 
     private func deleteExpense(_ expense: Expense) {
+        moneyAccountSync.applyExpenseDeletion(expense, to: &moneyAccounts)
         expenses.removeAll { $0.id == expense.id }
+
         onPersistExpenses()
+        onPersistMoneyAccounts()
         configureInitialSelection()
         normalizeLedgerFiltersIfNeeded()
     }
 
     private func deleteIncome(_ income: Income) {
+        moneyAccountSync.applyIncomeDeletion(income, to: &moneyAccounts)
         incomes.removeAll { $0.id == income.id }
+
         onPersistIncomes()
+        onPersistMoneyAccounts()
         configureInitialSelection()
         normalizeLedgerFiltersIfNeeded()
     }
@@ -1545,6 +1564,15 @@ struct ExpenseHistoryView: View {
         formatter.locale = settings.appLocale
         return formatter.monthSymbols[month - 1].capitalized
     }
+    
+    private func entrySubtitle(base: String, moneyAccountId: UUID?) -> String {
+        guard let moneyAccountId,
+              let account = moneyAccounts.first(where: { $0.id == moneyAccountId }) else {
+            return base
+        }
+
+        return "\(base) · \(account.name)"
+    }
 
     private func ledgerEntries(from expenses: [Expense], incomes: [Income]) -> [LedgerEntry] {
         let expenseEntries = expenses.map { expense in
@@ -1553,7 +1581,10 @@ struct ExpenseHistoryView: View {
                 title: expense.title,
                 amount: expense.amount,
                 date: expense.date,
-                subtitle: expense.categoryDisplayName(language: settings.language),
+                subtitle: entrySubtitle(
+                    base: expense.categoryDisplayName(language: settings.language),
+                    moneyAccountId: expense.moneyAccountId
+                ),
                 note: expense.normalizedComment,
                 icon: expense.category.icon,
                 tint: expense.category.color,
@@ -1569,7 +1600,10 @@ struct ExpenseHistoryView: View {
                 title: income.title,
                 amount: income.amount,
                 date: income.date,
-                subtitle: income.categoryDisplayName(language: settings.language),
+                subtitle: entrySubtitle(
+                    base: income.categoryDisplayName(language: settings.language),
+                    moneyAccountId: income.moneyAccountId
+                ),
                 note: income.normalizedComment,
                 icon: income.category.icon,
                 tint: income.category.color,

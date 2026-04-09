@@ -15,13 +15,26 @@ struct AddIncomeView: View {
     @State private var customCategories: [CustomIncomeCategory] = []
     @State private var showValidationAlert = false
     @State private var showManageCategories = false
+    @State private var selectedMoneyAccountId: UUID?
 
     let existingIncome: Income?
-    var onSave: (Income) -> Void
+    let moneyAccounts: [MoneyAccount]
+    let onSave: (Income) -> Void
 
-    init(existingIncome: Income? = nil, onSave: @escaping (Income) -> Void) {
+    init(
+        existingIncome: Income? = nil,
+        moneyAccounts: [MoneyAccount] = [],
+        onSave: @escaping (Income) -> Void
+    ) {
         self.existingIncome = existingIncome
+        self.moneyAccounts = moneyAccounts.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
         self.onSave = onSave
+
+        let validExistingAccountId = existingIncome?.moneyAccountId.flatMap { existingId in
+            moneyAccounts.contains(where: { $0.id == existingId }) ? existingId : nil
+        }
 
         _title = State(initialValue: existingIncome?.title ?? "")
         _amount = State(initialValue: existingIncome.map { Self.makeAmountText($0.amount) } ?? "")
@@ -29,6 +42,7 @@ struct AddIncomeView: View {
         _customCategoryName = State(initialValue: existingIncome?.customCategoryName ?? "")
         _comment = State(initialValue: existingIncome?.comment ?? "")
         _incomeDate = State(initialValue: existingIncome?.date ?? Date())
+        _selectedMoneyAccountId = State(initialValue: validExistingAccountId)
     }
 
     private var validationError: FormValidationError? {
@@ -127,6 +141,34 @@ struct AddIncomeView: View {
                     }
                 } header: {
                     Text(settings.language == .spanish ? "Categoría" : "Category")
+                }
+
+                if !moneyAccounts.isEmpty {
+                    Section {
+                        Picker(
+                            settings.language == .spanish ? "Entra a" : "Goes to",
+                            selection: $selectedMoneyAccountId
+                        ) {
+                            Text(settings.language == .spanish ? "Sin cuenta" : "No account")
+                                .tag(nil as UUID?)
+
+                            ForEach(moneyAccounts) { account in
+                                Text("\(account.name) · \(settings.secureCurrency(account.balance))")
+                                    .tag(account.id as UUID?)
+                            }
+                        }
+                        .accessibilityIdentifier("income.account.picker")
+
+                        Text(
+                            settings.language == .spanish
+                            ? "Si eliges una cuenta, al guardar el ingreso se sumará automáticamente a ese saldo."
+                            : "If you choose an account, saving the income will automatically add it to that balance."
+                        )
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    } header: {
+                        Text(settings.language == .spanish ? "Cuenta de destino" : "Destination account")
+                    }
                 }
 
                 Section {
@@ -231,6 +273,7 @@ struct AddIncomeView: View {
             date: incomeDate,
             category: category,
             customCategoryName: customCategoryName,
+            moneyAccountId: selectedMoneyAccountId,
             comment: comment
         )
 

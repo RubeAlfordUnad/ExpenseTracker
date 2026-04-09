@@ -9,6 +9,7 @@ final class StoredExpense {
     var amount: Double
     var date: Date
     var categoryRawValue: String
+    var moneyAccountId: UUID?
 
     init(expense: Expense, user: String) {
         self.id = expense.id
@@ -17,6 +18,7 @@ final class StoredExpense {
         self.amount = expense.amount
         self.date = expense.date
         self.categoryRawValue = expense.category.rawValue
+        self.moneyAccountId = expense.moneyAccountId
     }
 
     func toExpense() -> Expense {
@@ -25,7 +27,8 @@ final class StoredExpense {
             title: title,
             amount: amount,
             date: date,
-            category: Category(rawValue: categoryRawValue) ?? .other
+            category: Category(rawValue: categoryRawValue) ?? .other,
+            moneyAccountId: moneyAccountId
         )
     }
 }
@@ -38,6 +41,7 @@ final class StoredIncome {
     var amount: Double
     var date: Date
     var categoryRawValue: String
+    var moneyAccountId: UUID?
 
     init(income: Income, user: String) {
         self.id = income.id
@@ -46,6 +50,7 @@ final class StoredIncome {
         self.amount = income.amount
         self.date = income.date
         self.categoryRawValue = income.category.rawValue
+        self.moneyAccountId = income.moneyAccountId
     }
 
     func toIncome() -> Income {
@@ -54,7 +59,8 @@ final class StoredIncome {
             title: title,
             amount: amount,
             date: date,
-            category: IncomeCategory(rawValue: categoryRawValue) ?? .other
+            category: IncomeCategory(rawValue: categoryRawValue) ?? .other,
+            moneyAccountId: moneyAccountId
         )
     }
 }
@@ -122,6 +128,70 @@ final class StoredRecurringPayment {
             isActive: isActive,
             lastPaidMonth: lastPaidMonth,
             lastPaidYear: lastPaidYear
+        )
+    }
+}
+
+@Model
+final class StoredMoneyAccount {
+    @Attribute(.unique) var id: UUID
+    var user: String
+    var name: String
+    var balance: Double
+    var kindRawValue: String
+    var customCategoryName: String?
+    var includeInAvailableTotal: Bool
+
+    init(account: MoneyAccount, user: String) {
+        self.id = account.id
+        self.user = user
+        self.name = account.name
+        self.balance = account.balance
+        self.kindRawValue = account.kind.rawValue
+        self.customCategoryName = account.customCategoryName
+        self.includeInAvailableTotal = account.includeInAvailableTotal
+    }
+
+    func toMoneyAccount() -> MoneyAccount {
+        MoneyAccount(
+            id: id,
+            name: name,
+            balance: balance,
+            kind: MoneyAccountKind(rawValue: kindRawValue) ?? .other,
+            customCategoryName: customCategoryName,
+            includeInAvailableTotal: includeInAvailableTotal
+        )
+    }
+}
+
+@Model
+final class StoredAccountTransfer {
+    @Attribute(.unique) var id: UUID
+    var user: String
+    var fromAccountId: UUID
+    var toAccountId: UUID
+    var amount: Double
+    var date: Date
+    var note: String?
+
+    init(transfer: AccountTransfer, user: String) {
+        self.id = transfer.id
+        self.user = user
+        self.fromAccountId = transfer.fromAccountId
+        self.toAccountId = transfer.toAccountId
+        self.amount = transfer.amount
+        self.date = transfer.date
+        self.note = transfer.note
+    }
+
+    func toAccountTransfer() -> AccountTransfer {
+        AccountTransfer(
+            id: id,
+            fromAccountId: fromAccountId,
+            toAccountId: toAccountId,
+            amount: amount,
+            date: date,
+            note: note
         )
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 enum CustomCategoryMode: String, CaseIterable, Identifiable {
     case expense
     case income
+    case moneyAccount
 
     var id: String { rawValue }
 }
@@ -25,6 +26,18 @@ struct CustomIncomeCategory: Identifiable, Codable, Equatable {
     var style: IncomeCategory
 
     init(id: UUID = UUID(), name: String, style: IncomeCategory) {
+        self.id = id
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.style = style
+    }
+}
+
+struct CustomMoneyAccountCategory: Identifiable, Codable, Equatable {
+    var id = UUID()
+    var name: String
+    var style: MoneyAccountKind
+
+    init(id: UUID = UUID(), name: String, style: MoneyAccountKind) {
         self.id = id
         self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         self.style = style
