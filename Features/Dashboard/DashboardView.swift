@@ -29,6 +29,7 @@ struct DashboardView: View {
     @State private var recurringPayments: [RecurringPayment] = []
 
     private let calendar = Calendar.current
+    private let expenseFundingSync = ExpenseFundingSync()
     
     private let dashboardRecentTransfersLimit = 2
     private let dashboardMoneyAccountLimit = 3
@@ -684,7 +685,21 @@ struct DashboardView: View {
                 Spacer()
 
                 NavigationLink {
-                    RecurringPaymentsView()
+                    RecurringPaymentsView(
+                        moneyAccounts: moneyAccounts,
+                        onRegisterPaidRecurringExpense: { payment, moneyAccountId, expenseId in
+                            registerRecurringPaymentAsExpense(
+                                payment,
+                                from: moneyAccountId,
+                                expenseId: expenseId
+                            )
+                        },
+                        onDeletePaidRecurringExpense: { expenseId in
+                            deleteRecurringPaymentExpense(withId: expenseId)
+                        }
+                    )
+                    .environmentObject(auth)
+                    .environmentObject(settings)
                 } label: {
                     Text(settings.language == .spanish ? "Ver todo" : "See all")
                         .font(.caption.bold())
@@ -728,7 +743,17 @@ struct DashboardView: View {
                 Spacer()
 
                 NavigationLink {
-                    DebtsView()
+                    DebtsView(
+                        moneyAccounts: moneyAccounts,
+                        onRegisterCardExpense: { newExpense in
+                            registerCardExpenseFromDashboard(newExpense)
+                        },
+                        onRegisterDebtPayment: { paymentAmount, moneyAccountId in
+                            registerDebtPayment(paymentAmount, from: moneyAccountId)
+                        }
+                    )
+                    .environmentObject(auth)
+                    .environmentObject(settings)
                 } label: {
                     Text(settings.language == .spanish ? "Abrir" : "Open")
                         .font(.caption.bold())
@@ -754,50 +779,135 @@ struct DashboardView: View {
                         )
 
                         summaryMetricCard(
-                            title: settings.language == .spanish ? "Utilización" : "Utilization",
-                            value: "\(Int((debtUtilization * 100).rounded()))%",
-                            tone: debtUtilization >= 0.8 ? .negative : .neutral,
-                            icon: "chart.bar.xaxis"
+                            title: settings.language == .spanish ? "Límite total" : "Total limit",
+                            value: settings.secureCurrency(totalCreditLimit),
+                            tone: .neutral,
+                            icon: "creditcard.and.123"
                         )
                     }
 
                     if let highlightedDebt {
-                        HStack(spacing: 14) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color.red.opacity(0.12))
-                                    .frame(width: 46, height: 46)
-
-                                Image(systemName: highlightedDebt.brand.systemImageName)
-                                    .foregroundColor(.red)
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(highlightedDebt.cardName)
-                                    .font(.subheadline.bold())
-
-                                Text(
-                                    settings.language == .spanish
-                                    ? "Saldo más alto del mes"
-                                    : "Highest balance right now"
-                                )
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            }
-
-                            Spacer()
-
-                            Text(settings.secureCurrency(highlightedDebt.remainingDebt))
-                                .font(.subheadline.bold())
-                                .foregroundColor(.red)
-                        }
-                        .padding(16)
-                        .background(BrandPalette.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        highlightedDebtCard(highlightedDebt)
                     }
+
+                    utilizationCard
                 }
             }
         }
+    }
+    
+    private func highlightedDebtCard(_ debt: Debt) -> some View {
+        let utilization = debt.totalLimit > 0
+            ? min(max(debt.remainingDebt / debt.totalLimit, 0), 1)
+            : 0
+
+        let utilizationPercent = Int((utilization * 100).rounded())
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(Color.red.opacity(0.14))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "creditcard.fill")
+                        .foregroundColor(.red)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settings.language == .spanish ? "Tarjeta con mayor saldo" : "Highest balance card")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text(debt.cardName)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Text(
+                        settings.language == .spanish
+                        ? "Saldo pendiente: \(settings.secureCurrency(debt.remainingDebt))"
+                        : "Outstanding balance: \(settings.secureCurrency(debt.remainingDebt))"
+                    )
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(settings.secureCurrency(debt.remainingDebt))
+                        .font(.headline.bold())
+                        .foregroundColor(.red)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+
+                    Text("\(utilizationPercent)%")
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            if debt.totalLimit > 0 {
+                ProgressView(value: utilization)
+                    .tint(utilization >= 0.8 ? .red : BrandPalette.secondary)
+
+                Text(
+                    settings.language == .spanish
+                    ? "Límite: \(settings.secureCurrency(debt.totalLimit))"
+                    : "Limit: \(settings.secureCurrency(debt.totalLimit))"
+                )
+                .font(.caption)
+                .foregroundColor(.secondary)
+            }
+        }
+        .padding(16)
+        .background(BrandPalette.surfaceRaised)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var utilizationCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(settings.language == .spanish ? "Uso total del crédito" : "Total credit utilization")
+                    .font(.subheadline.bold())
+
+                Spacer()
+
+                Text("\(Int((debtUtilization * 100).rounded()))%")
+                    .font(.subheadline.bold())
+                    .foregroundColor(
+                        debtUtilization >= 0.8
+                        ? .red
+                        : (debtUtilization >= 0.5 ? BrandPalette.secondary : BrandPalette.primary)
+                    )
+            }
+
+            ProgressView(value: debtUtilization)
+                .tint(
+                    debtUtilization >= 0.8
+                    ? .red
+                    : (debtUtilization >= 0.5 ? BrandPalette.secondary : BrandPalette.primary)
+                )
+
+            Text(
+                settings.language == .spanish
+                ? "Deuda actual \(settings.secureCurrency(totalDebt)) de un límite total de \(settings.secureCurrency(totalCreditLimit))."
+                : "Current debt \(settings.secureCurrency(totalDebt)) out of a total limit of \(settings.secureCurrency(totalCreditLimit))."
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(BrandPalette.surfaceRaised)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func topCategorySection(category: Category, amount: Double) -> some View {
@@ -1271,6 +1381,101 @@ struct DashboardView: View {
     private var budgetNotSetText: String {
         settings.language == .spanish ? "Sin definir" : "Not set"
     }
+    
+    private func registerCardExpenseFromDashboard(_ newExpense: Expense) {
+        expenses.append(newExpense)
+        expenses.sort { $0.date > $1.date }
+
+        var currentDebts = DataManager.shared.loadDebts(user: auth.currentUser)
+        expenseFundingSync.applyNewExpense(newExpense, accounts: &moneyAccounts, debts: &currentDebts)
+        DataManager.shared.saveDebts(currentDebts, user: auth.currentUser)
+
+        onPersistExpenses()
+        onPersistMoneyAccounts()
+        onRefreshInsight()
+        onEvaluateBudgetNotifications()
+        refreshSecondaryData()
+    }
+
+    private func registerRecurringPaymentAsExpense(
+        _ payment: RecurringPayment,
+        from moneyAccountId: UUID,
+        expenseId: UUID
+    ) {
+        let generatedExpense = Expense(
+            id: expenseId,
+            title: payment.title,
+            amount: payment.amount,
+            date: Date(),
+            category: expenseCategory(for: payment.category),
+            moneyAccountId: moneyAccountId,
+            comment: settings.language == .spanish
+                ? "Generado desde pagos fijos"
+                : "Generated from recurring payments"
+        )
+
+        expenses.append(generatedExpense)
+        expenses.sort { $0.date > $1.date }
+
+        var currentDebts = DataManager.shared.loadDebts(user: auth.currentUser)
+        expenseFundingSync.applyNewExpense(generatedExpense, accounts: &moneyAccounts, debts: &currentDebts)
+        DataManager.shared.saveDebts(currentDebts, user: auth.currentUser)
+
+        onPersistExpenses()
+        onPersistMoneyAccounts()
+        onRefreshInsight()
+        onEvaluateBudgetNotifications()
+        refreshSecondaryData()
+    }
+
+    private func deleteRecurringPaymentExpense(withId expenseId: UUID) {
+        guard let expense = expenses.first(where: { $0.id == expenseId }) else { return }
+
+        var currentDebts = DataManager.shared.loadDebts(user: auth.currentUser)
+        expenseFundingSync.applyExpenseDeletion(expense, accounts: &moneyAccounts, debts: &currentDebts)
+        DataManager.shared.saveDebts(currentDebts, user: auth.currentUser)
+
+        expenses.removeAll { $0.id == expenseId }
+
+        onPersistExpenses()
+        onPersistMoneyAccounts()
+        onRefreshInsight()
+        onEvaluateBudgetNotifications()
+        refreshSecondaryData()
+    }
+
+    private func registerDebtPayment(_ amount: Double, from moneyAccountId: UUID) {
+        guard amount.isFinite, amount > 0 else { return }
+        guard let accountIndex = moneyAccounts.firstIndex(where: { $0.id == moneyAccountId }) else { return }
+
+        moneyAccounts[accountIndex].balance -= amount
+        onPersistMoneyAccounts()
+        refreshSecondaryData()
+    }
+
+    private func expenseCategory(for recurringCategory: RecurringPaymentCategory) -> Category {
+        switch recurringCategory {
+        case .housing:
+            return .housing
+        case .transport:
+            return .transport
+        case .utilities:
+            return .bills
+        case .insurance:
+            return .bills
+        case .health:
+            return .health
+        case .subscriptions:
+            return .subscriptions
+        case .education:
+            return .education
+        case .loans:
+            return .bills
+        case .other:
+            return .other
+        }
+    }
+
 }
 
 private enum DashboardTone {
@@ -1309,7 +1514,7 @@ private struct DashboardActivityItem: Identifiable {
         case income
         case expense
     }
-
+    
     let id: String
     let title: String
     let subtitle: String
@@ -1319,4 +1524,5 @@ private struct DashboardActivityItem: Identifiable {
     let icon: String
     let tint: Color
     let kind: Kind
+    
 }

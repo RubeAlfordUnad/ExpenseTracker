@@ -179,9 +179,10 @@ struct AddRecurringPaymentView: View {
             category: category,
             isActive: isActive,
             lastPaidMonth: existingPayment?.lastPaidMonth,
-            lastPaidYear: existingPayment?.lastPaidYear
+            lastPaidYear: existingPayment?.lastPaidYear,
+            lastPaidExpenseId: existingPayment?.lastPaidExpenseId
         )
-
+        
         onSave(payment)
         dismiss()
     }

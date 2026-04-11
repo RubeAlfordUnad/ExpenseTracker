@@ -105,6 +105,7 @@ final class StoredRecurringPayment {
     var isActive: Bool
     var lastPaidMonth: Int?
     var lastPaidYear: Int?
+    var lastPaidExpenseId: UUID?
 
     init(payment: RecurringPayment, user: String) {
         self.id = payment.id
@@ -116,6 +117,7 @@ final class StoredRecurringPayment {
         self.isActive = payment.isActive
         self.lastPaidMonth = payment.lastPaidMonth
         self.lastPaidYear = payment.lastPaidYear
+        self.lastPaidExpenseId = payment.lastPaidExpenseId
     }
 
     func toRecurringPayment() -> RecurringPayment {
@@ -127,7 +129,8 @@ final class StoredRecurringPayment {
             category: RecurringPaymentCategory(rawValue: categoryRawValue) ?? .other,
             isActive: isActive,
             lastPaidMonth: lastPaidMonth,
-            lastPaidYear: lastPaidYear
+            lastPaidYear: lastPaidYear,
+            lastPaidExpenseId: lastPaidExpenseId
         )
     }
 }

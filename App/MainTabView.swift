@@ -45,6 +45,7 @@ struct MainTabView: View {
 
     private let moneyAccountSync = MoneyAccountBalanceSync()
     private let moneyAccountTransferSync = MoneyAccountTransferSync()
+    private let expenseFundingSync = ExpenseFundingSync()
 
     private var currentMonthExpenses: [Expense] {
         let calendar = Calendar.current
@@ -146,11 +147,16 @@ struct MainTabView: View {
                         }
                     }
                     .sheet(isPresented: $showAddExpense) {
-                        AddExpenseView(moneyAccounts: moneyAccounts) { newExpense in
+                        AddExpenseView(
+                            moneyAccounts: moneyAccounts,
+                            debts: DataManager.shared.loadDebts(user: auth.currentUser)
+                        ) { newExpense in
                             expenses.append(newExpense)
                             expenses.sort { $0.date > $1.date }
 
-                            moneyAccountSync.applyNewExpense(newExpense, to: &moneyAccounts)
+                            var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+                            expenseFundingSync.applyNewExpense(newExpense, accounts: &moneyAccounts, debts: &debts)
+                            DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
                             persistExpenses()
                             persistMoneyAccounts()
@@ -287,15 +293,51 @@ struct MainTabView: View {
                     Label(transferTabTitle, systemImage: "arrow.left.arrow.right")
                 }
 
-                DebtsView()
-                    .tabItem {
-                        Label(settings.t("tab.debts"), systemImage: "creditcard")
-                    }
+                DebtsView(
+                    moneyAccounts: moneyAccounts,
+                    onRegisterCardExpense: { newExpense in
+                        expenses.append(newExpense)
+                        expenses.sort { $0.date > $1.date }
 
-                RecurringPaymentsView()
-                    .tabItem {
-                        Label(settings.t("tab.recurring"), systemImage: "calendar.badge.clock")
+                        var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+                        expenseFundingSync.applyNewExpense(newExpense, accounts: &moneyAccounts, debts: &debts)
+                        DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
+                        persistExpenses()
+                        persistMoneyAccounts()
+                        refreshInsight()
+                        evaluateBudgetNotifications()
+                    },
+                    onRegisterDebtPayment: { paymentAmount, moneyAccountId in
+                        moneyAccountSync.applyDebtPayment(
+                            amount: paymentAmount,
+                            from: moneyAccountId,
+                            to: &moneyAccounts
+                        )
+                        persistMoneyAccounts()
                     }
+                )
+                .tabItem {
+                    Label(settings.t("tab.debts"), systemImage: "creditcard")
+                }
+                
+                RecurringPaymentsView(
+                    moneyAccounts: moneyAccounts,
+                    onRegisterPaidRecurringExpense: { payment, moneyAccountId, expenseId in
+                        registerRecurringPaymentAsExpense(
+                            payment,
+                            from: moneyAccountId,
+                            expenseId: expenseId
+                        )
+                    },
+                    onDeletePaidRecurringExpense: { expenseId in
+                        deleteRecurringPaymentExpense(withId: expenseId)
+                    }
+                )
+                .tabItem {
+                    Label(settings.t("tab.recurring"), systemImage: "calendar.badge.clock")
+                }
+                
             }
             .blur(radius: showLockOverlay ? 10 : 0)
             .disabled(showLockOverlay)
@@ -410,6 +452,51 @@ struct MainTabView: View {
 
     private func persistMoneyAccounts() {
         DataManager.shared.saveMoneyAccounts(moneyAccounts, user: auth.currentUser)
+    }
+    
+    private func registerRecurringPaymentAsExpense(
+        _ payment: RecurringPayment,
+        from moneyAccountId: UUID,
+        expenseId: UUID
+    ) {
+        let generatedExpense = Expense(
+            id: expenseId,
+            title: payment.title,
+            amount: payment.amount,
+            date: Date(),
+            category: payment.category.expenseCategory(),
+            moneyAccountId: moneyAccountId,
+            comment: settings.language == .spanish
+                ? "Generado desde pagos fijos"
+                : "Generated from recurring payments"
+        )
+
+        expenses.append(generatedExpense)
+        expenses.sort { $0.date > $1.date }
+
+        var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+        expenseFundingSync.applyNewExpense(generatedExpense, accounts: &moneyAccounts, debts: &debts)
+        DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
+        persistExpenses()
+        persistMoneyAccounts()
+        refreshInsight()
+        evaluateBudgetNotifications()
+    }
+
+    private func deleteRecurringPaymentExpense(withId expenseId: UUID) {
+        guard let expense = expenses.first(where: { $0.id == expenseId }) else { return }
+
+        var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+        expenseFundingSync.applyExpenseDeletion(expense, accounts: &moneyAccounts, debts: &debts)
+        DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
+        expenses.removeAll { $0.id == expenseId }
+
+        persistExpenses()
+        persistMoneyAccounts()
+        refreshInsight()
+        evaluateBudgetNotifications()
     }
 
     private func openBudgetEditor() {

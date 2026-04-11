@@ -91,12 +91,14 @@ final class TransactionCustomizationStore {
         for expense in expenses {
             let customCategoryName = normalizedText(expense.customCategoryName)
             let comment = normalizedText(expense.comment)
+            let creditCardId = expense.creditCardId
 
-            guard customCategoryName != nil || comment != nil else { continue }
+            guard customCategoryName != nil || comment != nil || creditCardId != nil else { continue }
 
             payload[expense.id.uuidString] = StoredExpenseMetadata(
                 customCategoryName: customCategoryName,
-                comment: comment
+                comment: comment,
+                creditCardId: creditCardId
             )
         }
 
@@ -126,6 +128,8 @@ final class TransactionCustomizationStore {
                 date: expense.date,
                 category: expense.category,
                 customCategoryName: metadata.customCategoryName ?? expense.customCategoryName,
+                moneyAccountId: expense.moneyAccountId,
+                creditCardId: metadata.creditCardId ?? expense.creditCardId,
                 comment: metadata.comment ?? expense.comment
             )
         }
@@ -203,6 +207,7 @@ final class TransactionCustomizationStore {
     private struct StoredExpenseMetadata: Codable {
         let customCategoryName: String?
         let comment: String?
+        let creditCardId: UUID?
     }
     
     private func moneyAccountCustomCategoriesKey(for user: String) -> String {

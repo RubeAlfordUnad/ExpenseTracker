@@ -6,17 +6,22 @@ struct DebtsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var settings: AppSettings
 
+    let moneyAccounts: [MoneyAccount]
+    let onRegisterCardExpense: (Expense) -> Void
+    let onRegisterDebtPayment: (_ amount: Double, _ moneyAccountId: UUID) -> Void
+
     @State private var debts: [Debt] = []
     @State private var showEditor = false
     @State private var editingDebt: Debt?
     @State private var debtPendingDelete: Debt?
+    @State private var debtSelectedForExpense: Debt?
 
     @State private var exportDocument = ExportFileDocument()
     @State private var exportContentType: UTType = .json
     @State private var exportFilename = "wallet_cards.json"
     @State private var showExporter = false
     @State private var exportErrorMessage: String?
-		
+
     private let exportService = DebtsExportService()
 
     private var totalDebt: Double {
@@ -55,11 +60,18 @@ struct DebtsView: View {
                             ForEach(Array(debts.indices), id: \.self) { index in
                                 DebtCard(
                                     debt: $debts[index],
+                                    moneyAccounts: moneyAccounts,
                                     onEdit: {
                                         startEditing(debts[index])
                                     },
                                     onDelete: {
                                         debtPendingDelete = debts[index]
+                                    },
+                                    onRegisterExpense: {
+                                        debtSelectedForExpense = debts[index]
+                                    },
+                                    onRegisterPayment: { amount, moneyAccountId in
+                                        onRegisterDebtPayment(amount, moneyAccountId)
                                     }
                                 )
                             }
@@ -107,6 +119,18 @@ struct DebtsView: View {
                 AddDebtView(existingDebt: editingDebt) { savedDebt in
                     upsertDebt(savedDebt)
                 }
+            }
+            .sheet(item: $debtSelectedForExpense) { debt in
+                AddExpenseView(
+                    moneyAccounts: moneyAccounts,
+                    debts: debts,
+                    preselectedCreditCardId: debt.id
+                ) { newExpense in
+                    onRegisterCardExpense(newExpense)
+                    debts = DataManager.shared.loadDebts(user: auth.currentUser)
+                }
+                .environmentObject(auth)
+                .environmentObject(settings)
             }
             .fileExporter(
                 isPresented: $showExporter,
@@ -183,8 +207,8 @@ struct DebtsView: View {
 
                     Text(
                         settings.language == .spanish
-                        ? "Controla deuda, cupo disponible y exporta tu wallet cuando lo necesites."
-                        : "Track debt, available credit and export your wallet whenever you need it."
+                        ? "Controla deuda, cupo disponible, pagos y ahora también los gastos hechos con tarjeta."
+                        : "Track debt, available credit, payments and now also expenses made with your cards."
                     )
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -302,8 +326,8 @@ struct DebtsView: View {
 
             Text(
                 settings.language == .spanish
-                ? "Agrega tu primera tarjeta para empezar a controlar deuda, cupo y pagos desde un solo lugar."
-                : "Add your first card to start tracking debt, credit and payments in one place."
+                ? "Agrega tu primera tarjeta para empezar a controlar deuda, cupo, pagos y compras desde un solo lugar."
+                : "Add your first card to start tracking debt, credit, payments and purchases in one place."
             )
             .font(.subheadline)
             .foregroundColor(.secondary)

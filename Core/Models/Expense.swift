@@ -119,6 +119,7 @@ struct Expense: Identifiable, Codable {
     var category: Category
     var customCategoryName: String?
     var moneyAccountId: UUID?
+    var creditCardId: UUID?
     var comment: String?
 
     init(
@@ -129,6 +130,7 @@ struct Expense: Identifiable, Codable {
         category: Category,
         customCategoryName: String? = nil,
         moneyAccountId: UUID? = nil,
+        creditCardId: UUID? = nil,
         comment: String? = nil
     ) {
         self.id = id
@@ -138,6 +140,7 @@ struct Expense: Identifiable, Codable {
         self.category = category
         self.customCategoryName = Self.normalizedText(customCategoryName)
         self.moneyAccountId = moneyAccountId
+        self.creditCardId = creditCardId
         self.comment = Self.normalizedText(comment)
     }
 

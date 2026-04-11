@@ -6,8 +6,29 @@ struct AddPaymentView: View {
     @EnvironmentObject var settings: AppSettings
 
     @Binding var debt: Debt
+
     @State private var payment = ""
+    @State private var selectedMoneyAccountId: UUID?
     @State private var showValidationAlert = false
+
+    private let moneyAccounts: [MoneyAccount]
+    let onApplyPayment: (Double, UUID) -> Void
+
+    init(
+        debt: Binding<Debt>,
+        moneyAccounts: [MoneyAccount],
+        onApplyPayment: @escaping (Double, UUID) -> Void
+    ) {
+        self._debt = debt
+
+        let sortedAccounts = moneyAccounts.sorted {
+            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+
+        self.moneyAccounts = sortedAccounts
+        self.onApplyPayment = onApplyPayment
+        _selectedMoneyAccountId = State(initialValue: sortedAccounts.first?.id)
+    }
 
     private var validationError: FormValidationError? {
         FormValidator.validateDebtPayment(
@@ -16,21 +37,89 @@ struct AddPaymentView: View {
         )
     }
 
+    private var accountValidationMessage: String? {
+        if moneyAccounts.isEmpty {
+            return settings.language == .spanish
+                ? "Debes crear al menos una cuenta de dinero antes de registrar este pago."
+                : "You need to create at least one money account before registering this payment."
+        }
+
+        if selectedMoneyAccountId == nil {
+            return settings.language == .spanish
+                ? "Selecciona la cuenta desde donde saldrá este pago."
+                : "Select the account this payment will come from."
+        }
+
+        return nil
+    }
+
+    private var activeValidationMessage: String? {
+        validationError?.message(language: settings.language) ?? accountValidationMessage
+    }
+
+    private var validationAlertTitle: String {
+        if let validationError {
+            return validationError.title(language: settings.language)
+        }
+
+        return settings.language == .spanish
+            ? "Cuenta requerida"
+            : "Account required"
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Text("\(settings.t("debts.balancePending")): \(settings.formatCurrency(debt.remainingDebt, decimals: 2))")
-                    .fontWeight(.semibold)
+                Section {
+                    Text("\(settings.t("debts.balancePending")): \(settings.formatCurrency(debt.remainingDebt, decimals: 2))")
+                        .fontWeight(.semibold)
 
-                MoneyTextField(
-                    title: settings.t("debts.paymentAmount"),
-                    text: $payment,
-                    accessibilityIdentifier: "debt.payment.field"
-                )
+                    MoneyTextField(
+                        title: settings.t("debts.paymentAmount"),
+                        text: $payment,
+                        accessibilityIdentifier: "debt.payment.field"
+                    )
+                }
 
-                if let validationError {
+                Section(
+                    header: Text(settings.language == .spanish ? "Origen del dinero" : "Money source")
+                ) {
+                    if moneyAccounts.isEmpty {
+                        Text(
+                            settings.language == .spanish
+                                ? "No tienes cuentas disponibles. Crea una cuenta de dinero primero."
+                                : "You do not have any available accounts. Create a money account first."
+                        )
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    } else {
+                        Picker(
+                            settings.language == .spanish ? "Cuenta de salida" : "Source account",
+                            selection: $selectedMoneyAccountId
+                        ) {
+                            Text(settings.language == .spanish ? "Selecciona una cuenta" : "Select an account")
+                                .tag(nil as UUID?)
+
+                            ForEach(moneyAccounts) { account in
+                                Text("\(account.name) · \(settings.secureCurrency(account.balance))")
+                                    .tag(account.id as UUID?)
+                            }
+                        }
+                        .accessibilityIdentifier("debt.payment.account.picker")
+
+                        Text(
+                            settings.language == .spanish
+                                ? "Al aplicar el pago, bajará la deuda de la tarjeta y también se descontará el saldo de la cuenta seleccionada."
+                                : "When you apply this payment, the card debt will go down and the selected account balance will also be deducted."
+                        )
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                    }
+                }
+
+                if let activeValidationMessage {
                     Section {
-                        Text(validationError.message(language: settings.language))
+                        Text(activeValidationMessage)
                             .font(.footnote)
                             .foregroundColor(.red)
                     }
@@ -48,22 +137,22 @@ struct AddPaymentView: View {
                     Button(settings.t("debts.apply")) {
                         applyPayment()
                     }
-                    .disabled(validationError != nil)
+                    .disabled(activeValidationMessage != nil)
                 }
             }
             .alert(
-                validationError?.title(language: settings.language) ?? "",
+                validationAlertTitle,
                 isPresented: $showValidationAlert
             ) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text(validationError?.message(language: settings.language) ?? "")
+                Text(activeValidationMessage ?? "")
             }
         }
     }
 
     private func applyPayment() {
-        guard validationError == nil else {
+        guard validationError == nil, accountValidationMessage == nil else {
             showValidationAlert = true
             return
         }
@@ -73,7 +162,13 @@ struct AddPaymentView: View {
             return
         }
 
+        guard let selectedMoneyAccountId else {
+            showValidationAlert = true
+            return
+        }
+
         debt.remainingDebt = max(debt.remainingDebt - value, 0)
+        onApplyPayment(value, selectedMoneyAccountId)
         dismiss()
     }
 }

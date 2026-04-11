@@ -40,81 +40,40 @@ struct TransfersView: View {
         moneyAccounts.count >= 2
     }
 
+    private var latestTransfer: AccountTransfer? {
+        sortedTransfers.first
+    }
+
     var body: some View {
-        List {
-            Section {
-                HStack {
-                    Text(settings.language == .spanish ? "Transferencias este mes" : "Transfers this month")
-                    Spacer()
-                    Text("\(currentMonthTransfers.count)")
-                        .fontWeight(.semibold)
-                }
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 18) {
+                heroCard
+                sectionHeader
 
-                HStack {
-                    Text(settings.language == .spanish ? "Monto movido" : "Amount moved")
-                    Spacer()
-                    Text(settings.secureCurrency(currentMonthTransferVolume))
-                        .fontWeight(.semibold)
-                }
-            }
-
-            if !canCreateTransfers {
-                Section {
-                    Text(
-                        settings.language == .spanish
-                        ? "Necesitas al menos dos cuentas de dinero para poder transferir entre ellas."
-                        : "You need at least two money accounts to transfer between them."
-                    )
-                    .foregroundColor(.secondary)
-                }
-            }
-
-            Section(settings.language == .spanish ? "Historial de transferencias" : "Transfer history") {
-                if sortedTransfers.isEmpty {
-                    Text(
-                        settings.language == .spanish
-                        ? "Aún no has registrado transferencias."
-                        : "You have not recorded transfers yet."
-                    )
-                    .foregroundColor(.secondary)
+                if !canCreateTransfers {
+                    requirementsCard
+                } else if sortedTransfers.isEmpty {
+                    emptyState
                 } else {
-                    ForEach(sortedTransfers) { transfer in
-                        Button {
-                            editingTransfer = transfer
-                        } label: {
-                            transferRow(transfer)
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button {
-                                editingTransfer = transfer
-                            } label: {
-                                Label(
-                                    settings.language == .spanish ? "Editar" : "Edit",
-                                    systemImage: "pencil"
-                                )
-                            }
-                            .tint(.blue)
-
-                            Button(role: .destructive) {
-                                pendingDelete = transfer
-                            } label: {
-                                Label(
-                                    settings.language == .spanish ? "Eliminar" : "Delete",
-                                    systemImage: "trash"
-                                )
-                            }
+                    LazyVStack(spacing: 12) {
+                        ForEach(sortedTransfers) { transfer in
+                            transferCard(transfer)
                         }
                     }
                 }
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
+        .background(Color(.systemBackground))
         .navigationTitle(settings.language == .spanish ? "Transferencias" : "Transfers")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if canCreateTransfers {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        editingTransfer = nil
                         showAddTransfer = true
                     } label: {
                         Image(systemName: "plus")
@@ -145,30 +104,26 @@ struct TransfersView: View {
                 .environmentObject(settings)
             }
         }
-        .confirmationDialog(
+        .alert(
             settings.language == .spanish ? "Eliminar transferencia" : "Delete transfer",
             isPresented: Binding(
                 get: { pendingDelete != nil },
-                set: { isPresented in
-                    if !isPresented {
+                set: { newValue in
+                    if !newValue {
                         pendingDelete = nil
                     }
                 }
-            ),
-            titleVisibility: .visible
+            )
         ) {
-            if let pendingDelete {
-                Button(
-                    settings.language == .spanish ? "Eliminar" : "Delete",
-                    role: .destructive
-                ) {
-                    deleteTransfer(pendingDelete)
-                    self.pendingDelete = nil
-                }
+            Button(settings.t("common.cancel"), role: .cancel) {
+                pendingDelete = nil
             }
 
-            Button(settings.language == .spanish ? "Cancelar" : "Cancel", role: .cancel) {
-                pendingDelete = nil
+            Button(settings.language == .spanish ? "Eliminar" : "Delete", role: .destructive) {
+                if let pendingDelete {
+                    deleteTransfer(pendingDelete)
+                }
+                self.pendingDelete = nil
             }
         } message: {
             Text(
@@ -177,6 +132,229 @@ struct TransfersView: View {
                 : "This will revert the balances affected by this transfer."
             )
         }
+    }
+
+    private var heroCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(settings.language == .spanish ? "Movimiento interno" : "Internal movement")
+                        .font(.caption.bold())
+                        .foregroundColor(BrandPalette.primary)
+
+                    Text(settings.language == .spanish ? "Tus transferencias" : "Your transfers")
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+
+                    Text(
+                        settings.language == .spanish
+                        ? "Mueve dinero entre tus cuentas sin afectar ingresos, gastos ni presupuesto."
+                        : "Move money between your accounts without affecting income, expenses, or your budget."
+                    )
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Image(systemName: "arrow.left.arrow.right.circle.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(.blue)
+                    .frame(width: 52, height: 52)
+                    .background(BrandPalette.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+
+            HStack(spacing: 12) {
+                statPill(
+                    icon: "arrow.left.arrow.right",
+                    text: settings.language == .spanish
+                    ? "Este mes: \(settings.secureCurrency(currentMonthTransferVolume))"
+                    : "This month: \(settings.secureCurrency(currentMonthTransferVolume))"
+                )
+
+                statPill(
+                    icon: "clock",
+                    text: latestTransferRouteText
+                )
+            }
+        }
+        .padding(18)
+        .background(BrandPalette.heroGradient)
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private var latestTransferRouteText: String {
+        guard let latestTransfer else {
+            return settings.language == .spanish ? "Sin transferencias aún" : "No transfers yet"
+        }
+
+        return "\(accountName(for: latestTransfer.fromAccountId)) → \(accountName(for: latestTransfer.toAccountId))"
+    }
+
+    private var sectionHeader: some View {
+        HStack {
+            Text(settings.language == .spanish ? "Historial de transferencias" : "Transfer history")
+                .font(.headline)
+
+            Spacer()
+
+            Text(
+                settings.language == .spanish
+                ? "\(sortedTransfers.count) registros"
+                : "\(sortedTransfers.count) records"
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private var requirementsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.orange)
+
+                Text(
+                    settings.language == .spanish
+                    ? "Necesitas al menos dos cuentas"
+                    : "You need at least two accounts"
+                )
+                .font(.headline)
+            }
+
+            Text(
+                settings.language == .spanish
+                ? "Crea mínimo dos cuentas de dinero para poder mover saldo entre ellas y registrar transferencias."
+                : "Create at least two money accounts before moving balances between them and recording transfers."
+            )
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandPalette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(settings.language == .spanish ? "Aún no tienes transferencias" : "You do not have transfers yet")
+                .font(.headline)
+
+            Text(
+                settings.language == .spanish
+                ? "Usa esta sección para mover dinero entre cuentas, por ejemplo de efectivo a ahorros o de banco a billetera digital."
+                : "Use this section to move money between accounts, for example from cash to savings or from bank to digital wallet."
+            )
+            .font(.subheadline)
+            .foregroundColor(.secondary)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BrandPalette.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func transferCard(_ transfer: AccountTransfer) -> some View {
+        Button {
+            editingTransfer = transfer
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.blue.opacity(0.12))
+                        .frame(width: 42, height: 42)
+
+                    Image(systemName: "arrow.left.arrow.right")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(accountName(for: transfer.fromAccountId)) → \(accountName(for: transfer.toAccountId))")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+                        .lineLimit(2)
+
+                    Text(
+                        settings.language == .spanish
+                        ? "Movimiento entre cuentas"
+                        : "Movement between accounts"
+                    )
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                    if let note = transfer.normalizedNote {
+                        Text(note)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(2)
+                    }
+
+                    Text(settings.shortDateString(from: transfer.date))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                VStack(alignment: .trailing, spacing: 10) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.left.arrow.right.circle.fill")
+                            .font(.subheadline)
+                            .foregroundColor(.blue)
+
+                        Text(settings.secureCurrency(transfer.amount))
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                    }
+
+                    Menu {
+                        Button(settings.language == .spanish ? "Editar" : "Edit") {
+                            editingTransfer = transfer
+                        }
+
+                        Button(settings.language == .spanish ? "Eliminar" : "Delete", role: .destructive) {
+                            pendingDelete = transfer
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
+            .padding(16)
+            .background(BrandPalette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func statPill(icon: String, text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption.bold())
+                .foregroundColor(BrandPalette.primary)
+
+            Text(text)
+                .font(.caption.weight(.medium))
+                .foregroundColor(.secondary)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(BrandPalette.surface)
+        .clipShape(Capsule())
     }
 
     private func updateTransfer(_ updatedTransfer: AccountTransfer) {
@@ -200,47 +378,6 @@ struct TransfersView: View {
 
         onPersistTransfers()
         onPersistMoneyAccounts()
-    }
-
-    @ViewBuilder
-    private func transferRow(_ transfer: AccountTransfer) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color.blue.opacity(0.14))
-                    .frame(width: 40, height: 40)
-
-                Image(systemName: "arrow.left.arrow.right")
-                    .foregroundColor(.blue)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(accountName(for: transfer.fromAccountId)) → \(accountName(for: transfer.toAccountId))")
-                    .font(.subheadline.bold())
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                Text(settings.shortDateString(from: transfer.date))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-
-                if let note = transfer.normalizedNote {
-                    Text(note)
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                        .lineLimit(2)
-                }
-            }
-
-            Spacer()
-
-            Text(settings.secureCurrency(transfer.amount))
-                .font(.subheadline.bold())
-                .foregroundColor(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-        }
-        .padding(.vertical, 4)
     }
 
     private func accountName(for id: UUID) -> String {

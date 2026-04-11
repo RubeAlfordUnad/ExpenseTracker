@@ -5,11 +5,11 @@ enum AppMetadata {
     static let supportEmail = "motwd44011@outlook.com"
 
     // Reemplaza estas URLs por las reales antes de publicar.
-    static let publicWebsiteURLString = "https://nexoracol.netlify.app/"
-    static let privacyPolicyURLString = "https://nexoracol.netlify.app/"
+    static let publicWebsiteURLString = "https://nexoraweb-seven.vercel.app/"
+    static let privacyPolicyURLString = "https://nexoraweb-seven.vercel.app/privacy-policy"
 
-    static let legalLastUpdatedSpanish = "2 de abril de 2026"
-    static let legalLastUpdatedEnglish = "April 2, 2026"
+    static let legalLastUpdatedSpanish = "abril de 2026"
+    static let legalLastUpdatedEnglish = "April 2026"
 
     static var supportEmailURL: URL? {
         let trimmed = supportEmail.trimmingCharacters(in: .whitespacesAndNewlines)

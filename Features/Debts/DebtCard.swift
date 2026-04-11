@@ -7,8 +7,11 @@ struct DebtCard: View {
 
     @State private var showPayment = false
 
+    let moneyAccounts: [MoneyAccount]
     let onEdit: () -> Void
     let onDelete: () -> Void
+    let onRegisterExpense: () -> Void
+    let onRegisterPayment: (Double, UUID) -> Void
 
     private var utilizationColor: Color {
         if debt.utilization >= 0.85 { return .red }
@@ -134,21 +137,43 @@ struct DebtCard: View {
                 }
             }
 
-            Button {
-                showPayment = true
-            } label: {
-                Label(
-                    settings.language == .spanish ? "Registrar pago" : "Register payment",
-                    systemImage: "plus.circle.fill"
-                )
-                .font(.subheadline.bold())
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(BrandPalette.primary)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            HStack(spacing: 10) {
+                Button {
+                    showPayment = true
+                } label: {
+                    Label(
+                        settings.language == .spanish ? "Registrar pago" : "Register payment",
+                        systemImage: "plus.circle.fill"
+                    )
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(BrandPalette.primary)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    onRegisterExpense()
+                } label: {
+                    Label(
+                        settings.language == .spanish ? "Registrar gasto" : "Register expense",
+                        systemImage: "cart.fill.badge.plus"
+                    )
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(BrandPalette.surface)
+                    .foregroundColor(BrandPalette.primary)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(BrandPalette.primary.opacity(0.25), lineWidth: 1)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
         }
         .padding(18)
         .background(
@@ -168,7 +193,11 @@ struct DebtCard: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .sheet(isPresented: $showPayment) {
-            AddPaymentView(debt: $debt)
+            AddPaymentView(
+                debt: $debt,
+                moneyAccounts: moneyAccounts,
+                onApplyPayment: onRegisterPayment
+            )
         }
     }
 

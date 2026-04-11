@@ -5,10 +5,16 @@ struct RecurringPaymentsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var settings: AppSettings
 
+    let moneyAccounts: [MoneyAccount]
+    let onRegisterPaidRecurringExpense: (RecurringPayment, UUID, UUID) -> Void
+    let onDeletePaidRecurringExpense: (UUID) -> Void
+
     @State private var payments: [RecurringPayment] = []
     @State private var showPaymentEditor = false
     @State private var editingPayment: RecurringPayment?
     @State private var paymentPendingDelete: RecurringPayment?
+    @State private var paymentPendingFundingSelection: RecurringPayment?
+    @State private var showMissingAccountAlert = false
     @State private var selectedFilter: PaymentFilter = .all
 
     private enum PaymentFilter: CaseIterable, Identifiable {
@@ -80,6 +86,17 @@ struct RecurringPaymentsView: View {
         case .late:
             return payments.filter { isLate($0) }.sorted(by: sortPayments)
         }
+    }
+
+    private var isFundingSheetPresented: Binding<Bool> {
+        Binding(
+            get: { paymentPendingFundingSelection != nil },
+            set: { newValue in
+                if !newValue {
+                    paymentPendingFundingSelection = nil
+                }
+            }
+        )
     }
 
     var body: some View {
@@ -160,7 +177,7 @@ struct RecurringPaymentsView: View {
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
                             if payment.isActive {
                                 Button {
-                                    togglePaymentStatus(for: payment.id)
+                                    handlePaymentStatusAction(for: payment)
                                 } label: {
                                     Label(
                                         payment.isPaidForCurrentMonth
@@ -245,6 +262,34 @@ struct RecurringPaymentsView: View {
                     settings.language == .spanish
                     ? "Se borrará \"\(paymentPendingDelete?.title ?? "")\" de forma permanente."
                     : "\"\(paymentPendingDelete?.title ?? "")\" will be permanently removed."
+                )
+            }
+            .sheet(isPresented: isFundingSheetPresented, onDismiss: {
+                paymentPendingFundingSelection = nil
+            }) {
+                if let payment = paymentPendingFundingSelection {
+                    MarkRecurringPaymentSheetView(
+                        payment: payment,
+                        moneyAccounts: moneyAccounts
+                    ) { moneyAccountId in
+                        markPaymentAsPaid(paymentId: payment.id, from: moneyAccountId)
+                        paymentPendingFundingSelection = nil
+                    }
+                    .environmentObject(settings)
+                } else {
+                    EmptyView()
+                }
+            }
+            .alert(
+                settings.language == .spanish ? "Sin cuentas disponibles" : "No accounts available",
+                isPresented: $showMissingAccountAlert
+            ) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(
+                    settings.language == .spanish
+                        ? "Crea una cuenta de dinero antes de marcar este pago como pagado."
+                        : "Create a money account before marking this payment as paid."
                 )
             }
             .onAppear {
@@ -452,24 +497,56 @@ struct RecurringPaymentsView: View {
         persist()
     }
 
-    private func togglePaymentStatus(for id: UUID) {
-        guard let index = payments.firstIndex(where: { $0.id == id }) else { return }
-        guard payments[index].isActive else { return }
+    private func handlePaymentStatusAction(for payment: RecurringPayment) {
+        guard payment.isActive else { return }
+
+        if payment.isPaidForCurrentMonth {
+            unmarkPaymentStatus(for: payment.id)
+            return
+        }
+
+        guard !moneyAccounts.isEmpty else {
+            showMissingAccountAlert = true
+            return
+        }
+
+        paymentPendingFundingSelection = payment
+    }
+
+    private func markPaymentAsPaid(paymentId: UUID, from moneyAccountId: UUID) {
+        guard let index = payments.firstIndex(where: { $0.id == paymentId }) else { return }
+
+        let currentMonth = Calendar.current.component(.month, from: Date())
+        let currentYear = Calendar.current.component(.year, from: Date())
+        let generatedExpenseId = UUID()
 
         withAnimation(.spring()) {
-            let currentMonth = Calendar.current.component(.month, from: Date())
-            let currentYear = Calendar.current.component(.year, from: Date())
+            payments[index].lastPaidMonth = currentMonth
+            payments[index].lastPaidYear = currentYear
+            payments[index].lastPaidExpenseId = generatedExpenseId
+        }
 
-            if payments[index].isPaidForCurrentMonth {
-                payments[index].lastPaidMonth = nil
-                payments[index].lastPaidYear = nil
-            } else {
-                payments[index].lastPaidMonth = currentMonth
-                payments[index].lastPaidYear = currentYear
-            }
+        let savedPayment = payments[index]
+        persist()
+        onRegisterPaidRecurringExpense(savedPayment, moneyAccountId, generatedExpenseId)
+    }
+
+    private func unmarkPaymentStatus(for id: UUID) {
+        guard let index = payments.firstIndex(where: { $0.id == id }) else { return }
+
+        let generatedExpenseId = payments[index].lastPaidExpenseId
+
+        withAnimation(.spring()) {
+            payments[index].lastPaidMonth = nil
+            payments[index].lastPaidYear = nil
+            payments[index].lastPaidExpenseId = nil
         }
 
         persist()
+
+        if let generatedExpenseId {
+            onDeletePaidRecurringExpense(generatedExpenseId)
+        }
     }
 
     private func toggleActive(for id: UUID) {

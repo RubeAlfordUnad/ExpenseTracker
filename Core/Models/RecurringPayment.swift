@@ -11,6 +11,7 @@ struct RecurringPayment: Identifiable, Codable {
 
     var lastPaidMonth: Int?
     var lastPaidYear: Int?
+    var lastPaidExpenseId: UUID?
 
     var isPaidForCurrentMonth: Bool {
         guard let month = lastPaidMonth,
@@ -67,6 +68,31 @@ struct RecurringPayment: Identifiable, Codable {
             case .english:
                 return "Day \(dueDay) · this month \(effectiveDay)"
             }
+        }
+    }
+}
+
+extension RecurringPaymentCategory {
+    func expenseCategory() -> Category {
+        switch self {
+        case .housing:
+            return .housing
+        case .transport:
+            return .transport
+        case .utilities:
+            return .bills
+        case .insurance:
+            return .bills
+        case .health:
+            return .health
+        case .subscriptions:
+            return .subscriptions
+        case .education:
+            return .education
+        case .loans:
+            return .bills
+        case .other:
+            return .other
         }
     }
 }

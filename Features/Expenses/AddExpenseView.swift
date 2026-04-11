@@ -1,5 +1,13 @@
 import SwiftUI
 
+private enum ExpenseFundingSource: String, CaseIterable, Identifiable {
+    case none
+    case moneyAccount
+    case creditCard
+
+    var id: String { rawValue }
+}
+
 struct AddExpenseView: View {
 
     @Environment(\.dismiss) var dismiss
@@ -15,25 +23,47 @@ struct AddExpenseView: View {
     @State private var customCategories: [CustomExpenseCategory] = []
     @State private var showValidationAlert = false
     @State private var showManageCategories = false
+    @State private var selectedFundingSource: ExpenseFundingSource
     @State private var selectedMoneyAccountId: UUID?
+    @State private var selectedCreditCardId: UUID?
 
     let existingExpense: Expense?
     let moneyAccounts: [MoneyAccount]
+    let debts: [Debt]
     let onSave: (Expense) -> Void
 
     init(
         existingExpense: Expense? = nil,
         moneyAccounts: [MoneyAccount] = [],
+        debts: [Debt] = [],
+        preselectedCreditCardId: UUID? = nil,
         onSave: @escaping (Expense) -> Void
     ) {
         self.existingExpense = existingExpense
         self.moneyAccounts = moneyAccounts.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
+        self.debts = debts.sorted {
+            $0.cardName.localizedCaseInsensitiveCompare($1.cardName) == .orderedAscending
+        }
         self.onSave = onSave
 
         let validExistingAccountId = existingExpense?.moneyAccountId.flatMap { existingId in
             moneyAccounts.contains(where: { $0.id == existingId }) ? existingId : nil
+        }
+
+        let preferredCardId = existingExpense?.creditCardId ?? preselectedCreditCardId
+        let validExistingCreditCardId = preferredCardId.flatMap { existingId in
+            debts.contains(where: { $0.id == existingId }) ? existingId : nil
+        }
+
+        let initialFundingSource: ExpenseFundingSource
+        if validExistingCreditCardId != nil {
+            initialFundingSource = .creditCard
+        } else if validExistingAccountId != nil {
+            initialFundingSource = .moneyAccount
+        } else {
+            initialFundingSource = .none
         }
 
         _title = State(initialValue: existingExpense?.title ?? "")
@@ -42,11 +72,42 @@ struct AddExpenseView: View {
         _customCategoryName = State(initialValue: existingExpense?.customCategoryName ?? "")
         _comment = State(initialValue: existingExpense?.comment ?? "")
         _expenseDate = State(initialValue: existingExpense?.date ?? Date())
+        _selectedFundingSource = State(initialValue: initialFundingSource)
         _selectedMoneyAccountId = State(initialValue: validExistingAccountId)
+        _selectedCreditCardId = State(initialValue: validExistingCreditCardId)
     }
 
     private var validationError: FormValidationError? {
         FormValidator.validateExpense(title: title, amount: amount)
+    }
+
+    private var fundingValidationMessage: String? {
+        switch selectedFundingSource {
+        case .none:
+            return nil
+        case .moneyAccount:
+            guard selectedMoneyAccountId == nil else { return nil }
+            return settings.language == .spanish
+            ? "Selecciona una cuenta de salida o cambia el origen a Sin origen."
+            : "Select a source account or switch the source to No source."
+        case .creditCard:
+            guard selectedCreditCardId == nil else { return nil }
+            return settings.language == .spanish
+            ? "Selecciona una tarjeta o cambia el origen a Sin origen."
+            : "Select a card or switch the source to No source."
+        }
+    }
+
+    private var activeValidationMessage: String? {
+        validationError?.message(language: settings.language) ?? fundingValidationMessage
+    }
+
+    private var validationAlertTitle: String {
+        if let validationError {
+            return validationError.title(language: settings.language)
+        }
+
+        return settings.language == .spanish ? "Origen incompleto" : "Incomplete source"
     }
 
     private var isEditing: Bool {
@@ -137,31 +198,76 @@ struct AddExpenseView: View {
                     Text(settings.t("expense.category"))
                 }
 
-                if !moneyAccounts.isEmpty {
+                if !moneyAccounts.isEmpty || !debts.isEmpty {
                     Section {
                         Picker(
-                            settings.language == .spanish ? "Sale de" : "Comes from",
-                            selection: $selectedMoneyAccountId
+                            settings.language == .spanish ? "Sale desde" : "Paid with",
+                            selection: $selectedFundingSource
                         ) {
-                            Text(settings.language == .spanish ? "Sin cuenta" : "No account")
-                                .tag(nil as UUID?)
+                            Text(settings.language == .spanish ? "Sin origen" : "No source")
+                                .tag(ExpenseFundingSource.none)
 
-                            ForEach(moneyAccounts) { account in
-                                Text("\(account.name) · \(settings.secureCurrency(account.balance))")
-                                    .tag(account.id as UUID?)
+                            if !moneyAccounts.isEmpty {
+                                Text(settings.language == .spanish ? "Cuenta" : "Account")
+                                    .tag(ExpenseFundingSource.moneyAccount)
+                            }
+
+                            if !debts.isEmpty {
+                                Text(settings.language == .spanish ? "Tarjeta" : "Card")
+                                    .tag(ExpenseFundingSource.creditCard)
                             }
                         }
-                        .accessibilityIdentifier("expense.account.picker")
+                        .accessibilityIdentifier("expense.funding.picker")
 
-                        Text(
-                            settings.language == .spanish
-                            ? "Si eliges una cuenta, al guardar el gasto se descontará automáticamente de ese saldo."
-                            : "If you choose an account, saving the expense will automatically deduct it from that balance."
-                        )
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                        if selectedFundingSource == .moneyAccount, !moneyAccounts.isEmpty {
+                            Picker(
+                                settings.language == .spanish ? "Cuenta de salida" : "Source account",
+                                selection: $selectedMoneyAccountId
+                            ) {
+                                Text(settings.language == .spanish ? "Selecciona una cuenta" : "Select an account")
+                                    .tag(nil as UUID?)
+
+                                ForEach(moneyAccounts) { account in
+                                    Text("\(account.name) · \(settings.secureCurrency(account.balance))")
+                                        .tag(account.id as UUID?)
+                                }
+                            }
+                            .accessibilityIdentifier("expense.account.picker")
+
+                            Text(
+                                settings.language == .spanish
+                                ? "Al guardar, este gasto se descontará automáticamente del saldo de la cuenta seleccionada."
+                                : "Saving this expense will automatically deduct it from the selected account balance."
+                            )
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        }
+
+                        if selectedFundingSource == .creditCard, !debts.isEmpty {
+                            Picker(
+                                settings.language == .spanish ? "Tarjeta usada" : "Used card",
+                                selection: $selectedCreditCardId
+                            ) {
+                                Text(settings.language == .spanish ? "Selecciona una tarjeta" : "Select a card")
+                                    .tag(nil as UUID?)
+
+                                ForEach(debts) { debt in
+                                    Text("\(debt.cardName) · \(settings.secureCurrency(debt.availableCredit))")
+                                        .tag(debt.id as UUID?)
+                                }
+                            }
+                            .accessibilityIdentifier("expense.creditcard.picker")
+
+                            Text(
+                                settings.language == .spanish
+                                ? "Al guardar, este gasto aumentará automáticamente la deuda pendiente de la tarjeta seleccionada."
+                                : "Saving this expense will automatically increase the pending balance of the selected card."
+                            )
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                        }
                     } header: {
-                        Text(settings.language == .spanish ? "Cuenta de salida" : "Source account")
+                        Text(settings.language == .spanish ? "Origen del gasto" : "Expense source")
                     }
                 }
 
@@ -177,9 +283,9 @@ struct AddExpenseView: View {
                     Text(settings.language == .spanish ? "Comentario" : "Comment")
                 }
 
-                if let validationError {
+                if let activeValidationMessage {
                     Section {
-                        Text(validationError.message(language: settings.language))
+                        Text(activeValidationMessage)
                             .font(.footnote)
                             .foregroundColor(.red)
                     }
@@ -196,7 +302,7 @@ struct AddExpenseView: View {
                     Button(settings.t("common.save")) {
                         saveExpense()
                     }
-                    .disabled(validationError != nil)
+                    .disabled(validationError != nil || fundingValidationMessage != nil)
                     .accessibilityIdentifier("expense.save.button")
                 }
 
@@ -215,15 +321,26 @@ struct AddExpenseView: View {
                 }
             }
             .alert(
-                validationError?.title(language: settings.language) ?? "",
+                validationAlertTitle,
                 isPresented: $showValidationAlert
             ) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text(validationError?.message(language: settings.language) ?? "")
+                Text(activeValidationMessage ?? "")
             }
             .onAppear {
                 reloadCustomCategories()
+            }
+            .onChange(of: selectedFundingSource) { _, newValue in
+                switch newValue {
+                case .none:
+                    selectedMoneyAccountId = nil
+                    selectedCreditCardId = nil
+                case .moneyAccount:
+                    selectedCreditCardId = nil
+                case .creditCard:
+                    selectedMoneyAccountId = nil
+                }
             }
         }
         .accessibilityIdentifier("expense.sheet")
@@ -250,7 +367,7 @@ struct AddExpenseView: View {
     }
 
     private func saveExpense() {
-        guard validationError == nil else {
+        guard validationError == nil, fundingValidationMessage == nil else {
             showValidationAlert = true
             return
         }
@@ -260,6 +377,9 @@ struct AddExpenseView: View {
             return
         }
 
+        let resolvedMoneyAccountId = selectedFundingSource == .moneyAccount ? selectedMoneyAccountId : nil
+        let resolvedCreditCardId = selectedFundingSource == .creditCard ? selectedCreditCardId : nil
+
         let savedExpense = Expense(
             id: existingExpense?.id ?? UUID(),
             title: FormValidator.trim(title),
@@ -267,7 +387,8 @@ struct AddExpenseView: View {
             date: expenseDate,
             category: category,
             customCategoryName: customCategoryName,
-            moneyAccountId: selectedMoneyAccountId,
+            moneyAccountId: resolvedMoneyAccountId,
+            creditCardId: resolvedCreditCardId,
             comment: comment
         )
 
