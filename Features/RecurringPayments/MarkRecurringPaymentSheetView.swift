@@ -8,9 +8,12 @@ struct MarkRecurringPaymentSheetView: View {
     let payment: RecurringPayment
     let moneyAccounts: [MoneyAccount]
     let onConfirm: (UUID) -> Void
+    
+    private let moneyAccountFundsGuard = MoneyAccountFundsGuard()
 
     @State private var selectedMoneyAccountId: UUID?
-
+    @State private var showValidationAlert = false
+    
     init(
         payment: RecurringPayment,
         moneyAccounts: [MoneyAccount],
@@ -27,7 +30,7 @@ struct MarkRecurringPaymentSheetView: View {
         _selectedMoneyAccountId = State(initialValue: sortedAccounts.first?.id)
     }
 
-    private var validationMessage: String? {
+    private var baseValidationMessage: String? {
         if moneyAccounts.isEmpty {
             return settings.language == .spanish
                 ? "Debes crear una cuenta de dinero antes de marcar este pago como pagado."
@@ -41,6 +44,44 @@ struct MarkRecurringPaymentSheetView: View {
         }
 
         return nil
+    }
+
+    private var moneyAccountLimitImpact: MoneyAccountFundsImpact? {
+        guard baseValidationMessage == nil else { return nil }
+
+        return moneyAccountFundsGuard.recurringPaymentImpact(
+            paymentAmount: payment.amount,
+            selectedAccountId: selectedMoneyAccountId,
+            accounts: moneyAccounts
+        )
+    }
+
+    private var balanceValidationMessage: String? {
+        guard let impact = moneyAccountLimitImpact, impact.wouldGoNegative else {
+            return nil
+        }
+
+        if settings.language == .spanish {
+            return "Este pago fijo dejaría en negativo la cuenta \"\(impact.accountName)\". Máximo permitido: \(settings.secureCurrency(impact.allowedAmount)). Saldo actual: \(settings.secureCurrency(impact.availableBalance))."
+        } else {
+            return "This recurring payment would overdraw the account \"\(impact.accountName)\". Maximum allowed: \(settings.secureCurrency(impact.allowedAmount)). Current balance: \(settings.secureCurrency(impact.availableBalance))."
+        }
+    }
+
+    private var validationMessage: String? {
+        baseValidationMessage ?? balanceValidationMessage
+    }
+
+    private var validationAlertTitle: String {
+        if balanceValidationMessage != nil {
+            return settings.language == .spanish
+                ? "Fondos insuficientes"
+                : "Insufficient funds"
+        }
+
+        return settings.language == .spanish
+            ? "Cuenta requerida"
+            : "Account required"
     }
 
     var body: some View {
@@ -59,6 +100,14 @@ struct MarkRecurringPaymentSheetView: View {
                             .font(.title3.bold())
                             .foregroundColor(BrandPalette.primary)
                     }
+                }
+                .alert(
+                    validationAlertTitle,
+                    isPresented: $showValidationAlert
+                ) {
+                    Button("OK", role: .cancel) { }
+                } message: {
+                    Text(validationMessage ?? "")
                 }
 
                 Section(
@@ -124,7 +173,16 @@ struct MarkRecurringPaymentSheetView: View {
     }
 
     private func confirm() {
-        guard let selectedMoneyAccountId else { return }
+        guard validationMessage == nil else {
+            showValidationAlert = true
+            return
+        }
+
+        guard let selectedMoneyAccountId else {
+            showValidationAlert = true
+            return
+        }
+
         onConfirm(selectedMoneyAccountId)
         dismiss()
     }

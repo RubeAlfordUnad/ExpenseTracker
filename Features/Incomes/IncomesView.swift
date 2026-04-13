@@ -3,6 +3,7 @@ import SwiftUI
 struct IncomesView: View {
 
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var auth: AuthManager
 
     @Binding var incomes: [Income]
     let onPersist: () -> Void
@@ -74,6 +75,7 @@ struct IncomesView: View {
             AddIncomeView(existingIncome: editingIncome) { savedIncome in
                 upsertIncome(savedIncome)
             }
+            .environmentObject(auth)
             .environmentObject(settings)
         }
         .alert(

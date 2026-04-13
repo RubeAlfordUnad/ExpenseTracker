@@ -91,6 +91,44 @@ final class ExpensesTransferService {
         }
     }
 
+        func sanitizeFundingReferences(
+            for expense: Expense,
+            validAccountIds: Set<UUID>,
+            validDebtIds: Set<UUID>
+        ) -> Expense {
+            let validCreditCardId = expense.creditCardId.flatMap { validDebtIds.contains($0) ? $0 : nil }
+            let validMoneyAccountId = expense.moneyAccountId.flatMap { validAccountIds.contains($0) ? $0 : nil }
+
+            let resolvedCreditCardId = validCreditCardId
+            let resolvedMoneyAccountId = resolvedCreditCardId == nil ? validMoneyAccountId : nil
+
+            return Expense(
+                id: expense.id,
+                title: expense.title,
+                amount: expense.amount,
+                date: expense.date,
+                category: expense.category,
+                customCategoryName: expense.customCategoryName,
+                moneyAccountId: resolvedMoneyAccountId,
+                creditCardId: resolvedCreditCardId,
+                comment: expense.comment
+            )
+        }
+
+        private func duplicateKey(for expense: Expense) -> String {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd"
+
+            return [
+                expense.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                String(format: "%.2f", expense.amount),
+                formatter.string(from: expense.date),
+                expense.category.rawValue.lowercased()
+            ].joined(separator: "|")
+        }
+    }
+
     func importExpenses(from data: Data, contentType: UTType?) throws -> ExpensesImportResult {
         let cleanedData = removeUTF8BOMIfNeeded(from: data)
 
@@ -175,8 +213,10 @@ final class ExpensesTransferService {
         isoDecoder.dateDecodingStrategy = .iso8601
 
         if let decoded = try? isoDecoder.decode([Expense].self, from: data), !decoded.isEmpty {
+            let normalized = importedExpensesWithFreshIDs(decoded)
+
             return ExpensesImportResult(
-                expenses: decoded,
+                expenses: normalized,
                 totalRows: decoded.count,
                 importedRows: decoded.count,
                 skippedRows: 0
@@ -192,8 +232,10 @@ final class ExpensesTransferService {
                 throw ExpensesTransferError.noValidRows
             }
 
+            let normalized = importedExpensesWithFreshIDs(decoded)
+
             return ExpensesImportResult(
-                expenses: decoded,
+                expenses: normalized,
                 totalRows: decoded.count,
                 importedRows: decoded.count,
                 skippedRows: 0
@@ -202,6 +244,22 @@ final class ExpensesTransferService {
             throw error
         } catch {
             throw ExpensesTransferError.decodingFailed
+        }
+    }
+    
+    private func importedExpensesWithFreshIDs(_ expenses: [Expense]) -> [Expense] {
+        expenses.map { expense in
+            Expense(
+                id: UUID(),
+                title: expense.title,
+                amount: expense.amount,
+                date: expense.date,
+                category: expense.category,
+                customCategoryName: expense.customCategoryName,
+                moneyAccountId: expense.moneyAccountId,
+                creditCardId: expense.creditCardId,
+                comment: expense.comment
+            )
         }
     }
 

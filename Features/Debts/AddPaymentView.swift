@@ -13,6 +13,8 @@ struct AddPaymentView: View {
 
     private let moneyAccounts: [MoneyAccount]
     let onApplyPayment: (Double, UUID) -> Void
+    
+    private let moneyAccountFundsGuard = MoneyAccountFundsGuard()
 
     init(
         debt: Binding<Debt>,
@@ -52,9 +54,35 @@ struct AddPaymentView: View {
 
         return nil
     }
+    
+    private var moneyAccountLimitImpact: MoneyAccountFundsImpact? {
+        guard let parsedAmount = FormValidator.normalizedPositiveAmount(from: payment) else {
+            return nil
+        }
+
+        return moneyAccountFundsGuard.debtPaymentImpact(
+            requestedAmount: parsedAmount,
+            selectedAccountId: selectedMoneyAccountId,
+            accounts: moneyAccounts
+        )
+    }
+
+    private var balanceValidationMessage: String? {
+        guard let impact = moneyAccountLimitImpact, impact.wouldGoNegative else {
+            return nil
+        }
+
+        if settings.language == .spanish {
+            return "Este pago dejaría en negativo la cuenta \"\(impact.accountName)\". Máximo permitido: \(settings.secureCurrency(impact.allowedAmount)). Saldo actual: \(settings.secureCurrency(impact.availableBalance))."
+        } else {
+            return "This payment would overdraw the account \"\(impact.accountName)\". Maximum allowed: \(settings.secureCurrency(impact.allowedAmount)). Current balance: \(settings.secureCurrency(impact.availableBalance))."
+        }
+    }
 
     private var activeValidationMessage: String? {
-        validationError?.message(language: settings.language) ?? accountValidationMessage
+        validationError?.message(language: settings.language)
+        ?? accountValidationMessage
+        ?? balanceValidationMessage
     }
 
     private var validationAlertTitle: String {
@@ -62,9 +90,21 @@ struct AddPaymentView: View {
             return validationError.title(language: settings.language)
         }
 
+        if accountValidationMessage != nil {
+            return settings.language == .spanish
+                ? "Cuenta requerida"
+                : "Account required"
+        }
+
+        if balanceValidationMessage != nil {
+            return settings.language == .spanish
+                ? "Fondos insuficientes"
+                : "Insufficient funds"
+        }
+
         return settings.language == .spanish
-            ? "Cuenta requerida"
-            : "Account required"
+            ? "Validación pendiente"
+            : "Pending validation"
     }
 
     var body: some View {
@@ -152,7 +192,9 @@ struct AddPaymentView: View {
     }
 
     private func applyPayment() {
-        guard validationError == nil, accountValidationMessage == nil else {
+        guard validationError == nil,
+              accountValidationMessage == nil,
+              balanceValidationMessage == nil else {
             showValidationAlert = true
             return
         }

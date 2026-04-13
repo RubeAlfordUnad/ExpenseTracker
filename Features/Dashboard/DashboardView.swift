@@ -208,11 +208,19 @@ struct DashboardView: View {
         debts.reduce(0) { $0 + $1.totalLimit }
     }
 
-    private var debtUtilization: Double {
+    private var debtRawUtilization: Double {
         guard totalCreditLimit > 0 else { return 0 }
         let raw = totalDebt / totalCreditLimit
         guard raw.isFinite else { return 0 }
-        return min(max(raw, 0), 1)
+        return max(raw, 0)
+    }
+
+    private var debtUtilization: Double {
+        min(debtRawUtilization, 1)
+    }
+
+    private var debtUtilizationPercentage: Int {
+        Int((debtRawUtilization * 100).rounded())
     }
 
     private var highlightedDebt: Debt? {
@@ -797,11 +805,8 @@ struct DashboardView: View {
     }
     
     private func highlightedDebtCard(_ debt: Debt) -> some View {
-        let utilization = debt.totalLimit > 0
-            ? min(max(debt.remainingDebt / debt.totalLimit, 0), 1)
-            : 0
-
-        let utilizationPercent = Int((utilization * 100).rounded())
+        let utilization = debt.utilization
+        let utilizationPercent = debt.utilizationPercentage
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -877,7 +882,7 @@ struct DashboardView: View {
 
                 Spacer()
 
-                Text("\(Int((debtUtilization * 100).rounded()))%")
+                Text("\(debtUtilizationPercentage)%")
                     .font(.subheadline.bold())
                     .foregroundColor(
                         debtUtilization >= 0.8

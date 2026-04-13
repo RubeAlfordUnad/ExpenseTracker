@@ -15,7 +15,8 @@ struct AddTransferView: View {
     let existingTransfer: AccountTransfer?
     let moneyAccounts: [MoneyAccount]
     let onSave: (AccountTransfer) -> Void
-
+    
+    private let moneyAccountFundsGuard = MoneyAccountFundsGuard()
     init(
         existingTransfer: AccountTransfer? = nil,
         moneyAccounts: [MoneyAccount],
@@ -55,7 +56,7 @@ struct AddTransferView: View {
         existingTransfer != nil
     }
 
-    private var validationMessage: String? {
+    private var baseValidationMessage: String? {
         guard moneyAccounts.count >= 2 else {
             return settings.language == .spanish
             ? "Necesitas al menos dos cuentas para registrar una transferencia."
@@ -81,6 +82,48 @@ struct AddTransferView: View {
         }
 
         return nil
+    }
+
+    private var moneyAccountLimitImpact: MoneyAccountFundsImpact? {
+        guard baseValidationMessage == nil,
+              let parsedAmount = FormValidator.normalizedPositiveAmount(from: amount) else {
+            return nil
+        }
+
+        return moneyAccountFundsGuard.transferImpact(
+            requestedAmount: parsedAmount,
+            fromAccountId: fromAccountId,
+            existingTransfer: existingTransfer,
+            accounts: moneyAccounts
+        )
+    }
+
+    private var balanceValidationMessage: String? {
+        guard let impact = moneyAccountLimitImpact, impact.wouldGoNegative else {
+            return nil
+        }
+
+        if settings.language == .spanish {
+            return "Esta transferencia dejaría en negativo la cuenta \"\(impact.accountName)\". Máximo permitido: \(settings.secureCurrency(impact.allowedAmount)). Saldo actual: \(settings.secureCurrency(impact.availableBalance))."
+        } else {
+            return "This transfer would overdraw the account \"\(impact.accountName)\". Maximum allowed: \(settings.secureCurrency(impact.allowedAmount)). Current balance: \(settings.secureCurrency(impact.availableBalance))."
+        }
+    }
+
+    private var validationMessage: String? {
+        baseValidationMessage ?? balanceValidationMessage
+    }
+
+    private var validationAlertTitle: String {
+        if balanceValidationMessage != nil {
+            return settings.language == .spanish
+            ? "Fondos insuficientes"
+            : "Insufficient funds"
+        }
+
+        return settings.language == .spanish
+        ? "Datos inválidos"
+        : "Invalid data"
     }
 
     var body: some View {
@@ -186,7 +229,7 @@ struct AddTransferView: View {
             }
         }
         .alert(
-            settings.language == .spanish ? "Datos inválidos" : "Invalid data",
+            validationAlertTitle,
             isPresented: $showValidationAlert
         ) {
             Button("OK", role: .cancel) { }

@@ -31,6 +31,9 @@ struct AddExpenseView: View {
     let moneyAccounts: [MoneyAccount]
     let debts: [Debt]
     let onSave: (Expense) -> Void
+    
+    private let moneyAccountFundsGuard = MoneyAccountFundsGuard()
+    private let debtSpendingGuard = DebtSpendingGuard()
 
     init(
         existingExpense: Expense? = nil,
@@ -97,9 +100,64 @@ struct AddExpenseView: View {
             : "Select a card or switch the source to No source."
         }
     }
+    
+    private var moneyAccountLimitImpact: MoneyAccountFundsImpact? {
+        guard selectedFundingSource == .moneyAccount,
+              let parsedAmount = FormValidator.normalizedPositiveAmount(from: amount) else {
+            return nil
+        }
+
+        return moneyAccountFundsGuard.expenseImpact(
+            requestedAmount: parsedAmount,
+            selectedAccountId: selectedMoneyAccountId,
+            existingExpense: existingExpense,
+            accounts: moneyAccounts
+        )
+    }
+
+    private var moneyAccountValidationMessage: String? {
+        guard let impact = moneyAccountLimitImpact, impact.wouldGoNegative else {
+            return nil
+        }
+
+        if settings.language == .spanish {
+            return "Este gasto dejaría en negativo la cuenta \"\(impact.accountName)\". Máximo permitido para este gasto: \(settings.secureCurrency(impact.allowedAmount)). Saldo actual: \(settings.secureCurrency(impact.availableBalance))."
+        } else {
+            return "This expense would overdraw the account \"\(impact.accountName)\". Maximum allowed for this expense: \(settings.secureCurrency(impact.allowedAmount)). Current balance: \(settings.secureCurrency(impact.availableBalance))."
+        }
+    }
+    
+    private var creditLimitImpact: DebtSpendingImpact? {
+        guard selectedFundingSource == .creditCard,
+              let parsedAmount = FormValidator.normalizedPositiveAmount(from: amount) else {
+            return nil
+        }
+
+        return debtSpendingGuard.impact(
+            requestedAmount: parsedAmount,
+            selectedDebtId: selectedCreditCardId,
+            existingExpense: existingExpense,
+            debts: debts
+        )
+    }
+
+    private var creditLimitValidationMessage: String? {
+        guard let impact = creditLimitImpact, impact.exceedsLimit else {
+            return nil
+        }
+
+        if settings.language == .spanish {
+            return "Esta compra supera el cupo disponible de \"\(impact.cardName)\". Máximo permitido para este gasto: \(settings.secureCurrency(impact.allowedAmount)). Disponible actual: \(settings.secureCurrency(impact.availableCredit))."
+        } else {
+            return "This purchase exceeds the available credit on \"\(impact.cardName)\". Maximum allowed for this expense: \(settings.secureCurrency(impact.allowedAmount)). Current available credit: \(settings.secureCurrency(impact.availableCredit))."
+        }
+    }
 
     private var activeValidationMessage: String? {
-        validationError?.message(language: settings.language) ?? fundingValidationMessage
+        validationError?.message(language: settings.language)
+        ?? fundingValidationMessage
+        ?? moneyAccountValidationMessage
+        ?? creditLimitValidationMessage
     }
 
     private var validationAlertTitle: String {
@@ -107,7 +165,19 @@ struct AddExpenseView: View {
             return validationError.title(language: settings.language)
         }
 
-        return settings.language == .spanish ? "Origen incompleto" : "Incomplete source"
+        if fundingValidationMessage != nil {
+            return settings.language == .spanish ? "Origen incompleto" : "Incomplete source"
+        }
+
+        if moneyAccountValidationMessage != nil {
+            return settings.language == .spanish ? "Fondos insuficientes" : "Insufficient funds"
+        }
+
+        if creditLimitValidationMessage != nil {
+            return settings.language == .spanish ? "Cupo insuficiente" : "Insufficient credit limit"
+        }
+
+        return settings.language == .spanish ? "Validación pendiente" : "Pending validation"
     }
 
     private var isEditing: Bool {
@@ -302,7 +372,12 @@ struct AddExpenseView: View {
                     Button(settings.t("common.save")) {
                         saveExpense()
                     }
-                    .disabled(validationError != nil || fundingValidationMessage != nil)
+                    .disabled(
+                        validationError != nil
+                        || fundingValidationMessage != nil
+                        || moneyAccountValidationMessage != nil
+                        || creditLimitValidationMessage != nil
+                    )
                     .accessibilityIdentifier("expense.save.button")
                 }
 
@@ -367,7 +442,10 @@ struct AddExpenseView: View {
     }
 
     private func saveExpense() {
-        guard validationError == nil, fundingValidationMessage == nil else {
+        guard validationError == nil,
+              fundingValidationMessage == nil,
+              moneyAccountValidationMessage == nil,
+              creditLimitValidationMessage == nil else {
             showValidationAlert = true
             return
         }

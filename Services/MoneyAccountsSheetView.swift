@@ -8,13 +8,30 @@ struct MoneyAccountsSheetView: View {
 
     @State private var draftAccounts: [MoneyAccount]
     @State private var activeEditor: MoneyAccountEditorRoute?
+    @State private var showDeletionBlockedAlert = false
+    @State private var deletionBlockedTitle = ""
+    @State private var deletionBlockedMessage = ""
 
+    let expenses: [Expense]
+    let incomes: [Income]
+    let transfers: [AccountTransfer]
     let onSave: ([MoneyAccount]) -> Void
 
-    init(accounts: [MoneyAccount], onSave: @escaping ([MoneyAccount]) -> Void) {
+    private let deletionGuard = MoneyAccountDeletionGuard()
+
+    init(
+        accounts: [MoneyAccount],
+        expenses: [Expense],
+        incomes: [Income],
+        transfers: [AccountTransfer],
+        onSave: @escaping ([MoneyAccount]) -> Void
+    ) {
         _draftAccounts = State(initialValue: accounts.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         })
+        self.expenses = expenses
+        self.incomes = incomes
+        self.transfers = transfers
         self.onSave = onSave
     }
 
@@ -155,6 +172,11 @@ struct MoneyAccountsSheetView: View {
                 .environmentObject(auth)
                 .environmentObject(settings)
             }
+            .alert(deletionBlockedTitle, isPresented: $showDeletionBlockedAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(deletionBlockedMessage)
+            }
         }
     }
 
@@ -179,7 +201,74 @@ struct MoneyAccountsSheetView: View {
     }
 
     private func deleteAccount(_ account: MoneyAccount) {
+        let impact = deletionGuard.impact(
+            for: account.id,
+            expenses: expenses,
+            incomes: incomes,
+            transfers: transfers
+        )
+
+        guard !impact.hasLinkedRecords else {
+            presentDeletionBlockedAlert(for: account, impact: impact)
+            return
+        }
+
         draftAccounts.removeAll { $0.id == account.id }
+    }
+    
+    private func presentDeletionBlockedAlert(for account: MoneyAccount, impact: MoneyAccountDeletionImpact) {
+        deletionBlockedTitle = settings.language == .spanish
+        ? "No puedes eliminar esta cuenta"
+        : "You cannot delete this account"
+
+        let components = [
+            localizedCount(
+                impact.expenseCount,
+                singularSpanish: "gasto",
+                pluralSpanish: "gastos",
+                singularEnglish: "expense",
+                pluralEnglish: "expenses"
+            ),
+            localizedCount(
+                impact.incomeCount,
+                singularSpanish: "ingreso",
+                pluralSpanish: "ingresos",
+                singularEnglish: "income",
+                pluralEnglish: "incomes"
+            ),
+            localizedCount(
+                impact.transferCount,
+                singularSpanish: "transferencia",
+                pluralSpanish: "transferencias",
+                singularEnglish: "transfer",
+                pluralEnglish: "transfers"
+            )
+        ]
+        .compactMap { $0 }
+
+        let joined = components.joined(separator: settings.language == .spanish ? ", " : ", ")
+
+        deletionBlockedMessage = settings.language == .spanish
+        ? "La cuenta \"\(account.name)\" está siendo usada en \(joined). Reasigna o elimina esos movimientos primero."
+        : "The account \"\(account.name)\" is currently used in \(joined). Reassign or delete those records first."
+
+        showDeletionBlockedAlert = true
+    }
+
+    private func localizedCount(
+        _ count: Int,
+        singularSpanish: String,
+        pluralSpanish: String,
+        singularEnglish: String,
+        pluralEnglish: String
+    ) -> String? {
+        guard count > 0 else { return nil }
+
+        if settings.language == .spanish {
+            return "\(count) \(count == 1 ? singularSpanish : pluralSpanish)"
+        } else {
+            return "\(count) \(count == 1 ? singularEnglish : pluralEnglish)"
+        }
     }
 
     private func saveAndDismiss() {

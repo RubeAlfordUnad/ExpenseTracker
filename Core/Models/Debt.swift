@@ -67,20 +67,24 @@ struct Debt: Identifiable, Codable, Equatable {
         return max(value, 0)
     }
     
-    var utilization: Double {
+    var rawUtilization: Double {
         guard totalLimit.isFinite,
               remainingDebt.isFinite,
               totalLimit > 0 else {
             return 0
         }
-        
+
         let raw = remainingDebt / totalLimit
         guard raw.isFinite else { return 0 }
-        
-        return min(max(raw, 0), 1)
+
+        return max(raw, 0)
     }
-    
+
+    var utilization: Double {
+        min(rawUtilization, 1)
+    }
+
     var utilizationPercentage: Int {
-        Int((utilization * 100).rounded())
+        Int((rawUtilization * 100).rounded())
     }
 }

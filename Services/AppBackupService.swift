@@ -14,6 +14,9 @@ struct AppBackupSnapshot: Codable {
     let accountTransfers: [AccountTransfer]
     let monthlyBudget: MonthlyBudget?
     let notificationPreferences: NotificationPreferences
+    let expenseCustomCategories: [CustomExpenseCategory]
+    let incomeCustomCategories: [CustomIncomeCategory]
+    let moneyAccountCustomCategories: [CustomMoneyAccountCategory]
     let profileImageData: Data?
     let profileDisplayName: String?
 
@@ -31,6 +34,9 @@ struct AppBackupSnapshot: Codable {
         case notificationPreferences
         case profileImageData
         case profileDisplayName
+        case expenseCustomCategories
+        case incomeCustomCategories
+        case moneyAccountCustomCategories
     }
 
     init(
@@ -45,6 +51,9 @@ struct AppBackupSnapshot: Codable {
         accountTransfers: [AccountTransfer] = [],
         monthlyBudget: MonthlyBudget?,
         notificationPreferences: NotificationPreferences,
+        expenseCustomCategories: [CustomExpenseCategory] = [],
+        incomeCustomCategories: [CustomIncomeCategory] = [],
+        moneyAccountCustomCategories: [CustomMoneyAccountCategory] = [],
         profileImageData: Data?,
         profileDisplayName: String?
     ) {
@@ -59,6 +68,9 @@ struct AppBackupSnapshot: Codable {
         self.accountTransfers = accountTransfers
         self.monthlyBudget = monthlyBudget
         self.notificationPreferences = notificationPreferences
+        self.expenseCustomCategories = expenseCustomCategories
+        self.incomeCustomCategories = incomeCustomCategories
+        self.moneyAccountCustomCategories = moneyAccountCustomCategories
         self.profileImageData = profileImageData
         self.profileDisplayName = profileDisplayName
     }
@@ -76,6 +88,9 @@ struct AppBackupSnapshot: Codable {
         accountTransfers = try container.decodeIfPresent([AccountTransfer].self, forKey: .accountTransfers) ?? []
         monthlyBudget = try container.decodeIfPresent(MonthlyBudget.self, forKey: .monthlyBudget)
         notificationPreferences = try container.decodeIfPresent(NotificationPreferences.self, forKey: .notificationPreferences) ?? NotificationPreferences()
+        expenseCustomCategories = try container.decodeIfPresent([CustomExpenseCategory].self, forKey: .expenseCustomCategories) ?? []
+        incomeCustomCategories = try container.decodeIfPresent([CustomIncomeCategory].self, forKey: .incomeCustomCategories) ?? []
+        moneyAccountCustomCategories = try container.decodeIfPresent([CustomMoneyAccountCategory].self, forKey: .moneyAccountCustomCategories) ?? []
         profileImageData = try container.decodeIfPresent(Data.self, forKey: .profileImageData)
         profileDisplayName = try container.decodeIfPresent(String.self, forKey: .profileDisplayName)
     }
@@ -128,13 +143,15 @@ enum AppBackupError: LocalizedError {
 }
 
 final class AppBackupService {
-
-    private let currentVersion = 3
+    private let currentVersion = 4
     private let maximumBackupBytes = 12 * 1024 * 1024
     private let maximumRecordsPerCollection = 100_000
     private let maximumSourceUserLength = 80
     private let maximumProfileDisplayNameLength = 60
     private let maximumProfileImageBytes = 5 * 1024 * 1024
+    private let identityRemapper = AppBackupIdentityRemapper()
+    private let referenceSanitizer = AppBackupReferenceSanitizer()
+    private let financialStateSanitizer = AppBackupFinancialStateSanitizer()
 
     func currentSnapshot(for user: String) throws -> AppBackupSnapshot {
         let cleanUser = user.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -154,6 +171,9 @@ final class AppBackupService {
             accountTransfers: DataManager.shared.loadAccountTransfers(user: cleanUser),
             monthlyBudget: DataManager.shared.loadMonthlyBudget(user: cleanUser),
             notificationPreferences: DataManager.shared.loadNotificationPreferences(user: cleanUser),
+            expenseCustomCategories: TransactionCustomizationStore.shared.loadExpenseCustomCategories(user: cleanUser),
+            incomeCustomCategories: TransactionCustomizationStore.shared.loadIncomeCustomCategories(user: cleanUser),
+            moneyAccountCustomCategories: TransactionCustomizationStore.shared.loadMoneyAccountCustomCategories(user: cleanUser),
             profileImageData: DataManager.shared.loadProfileImageData(user: cleanUser),
             profileDisplayName: DataManager.shared.loadProfileDisplayName(user: cleanUser)
         )
@@ -251,20 +271,24 @@ final class AppBackupService {
         }
 
         let validated = try validatedSnapshot(snapshot)
+        let remapped = try validatedSnapshot(identityRemapper.remap(validated))
 
-        DataManager.shared.saveExpenses(validated.expenses, user: cleanUser)
-        DataManager.shared.saveIncomes(validated.incomes, user: cleanUser)
-        DataManager.shared.saveDebts(validated.debts, user: cleanUser)
-        DataManager.shared.saveRecurringPayments(validated.recurringPayments, user: cleanUser)
-        DataManager.shared.saveMoneyAccounts(validated.moneyAccounts, user: cleanUser)
-        DataManager.shared.saveAccountTransfers(validated.accountTransfers, user: cleanUser)
-        DataManager.shared.saveMonthlyBudget(validated.monthlyBudget ?? MonthlyBudget(amount: 0), user: cleanUser)
-        DataManager.shared.saveNotificationPreferences(validated.notificationPreferences, user: cleanUser)
+        DataManager.shared.saveExpenses(remapped.expenses, user: cleanUser)
+        DataManager.shared.saveIncomes(remapped.incomes, user: cleanUser)
+        DataManager.shared.saveDebts(remapped.debts, user: cleanUser)
+        DataManager.shared.saveRecurringPayments(remapped.recurringPayments, user: cleanUser)
+        DataManager.shared.saveMoneyAccounts(remapped.moneyAccounts, user: cleanUser)
+        DataManager.shared.saveAccountTransfers(remapped.accountTransfers, user: cleanUser)
+        DataManager.shared.saveMonthlyBudget(remapped.monthlyBudget ?? MonthlyBudget(amount: 0), user: cleanUser)
+        DataManager.shared.saveNotificationPreferences(remapped.notificationPreferences, user: cleanUser)
+        TransactionCustomizationStore.shared.saveExpenseCustomCategories(remapped.expenseCustomCategories, user: cleanUser)
+        TransactionCustomizationStore.shared.saveIncomeCustomCategories(remapped.incomeCustomCategories, user: cleanUser)
+        TransactionCustomizationStore.shared.saveMoneyAccountCustomCategories(remapped.moneyAccountCustomCategories, user: cleanUser)
         DataManager.shared.saveBudgetAlertState(BudgetAlertState(), user: cleanUser)
-        DataManager.shared.saveProfileImageData(validated.profileImageData, user: cleanUser)
-        DataManager.shared.saveProfileDisplayName(validated.profileDisplayName, user: cleanUser)
+        DataManager.shared.saveProfileImageData(remapped.profileImageData, user: cleanUser)
+        DataManager.shared.saveProfileDisplayName(remapped.profileDisplayName, user: cleanUser)
     }
-
+    
     private func validatedSnapshot(_ snapshot: AppBackupSnapshot) throws -> AppBackupSnapshot {
         guard snapshot.version > 0 else {
             throw AppBackupError.invalidSnapshot
@@ -281,30 +305,42 @@ final class AppBackupService {
             throw AppBackupError.invalidSnapshot
         }
 
-        try validateExpenses(snapshot.expenses)
-        try validateIncomes(snapshot.incomes)
-        try validateDebts(snapshot.debts)
-        try validateRecurringPayments(snapshot.recurringPayments)
-        try validateMoneyAccounts(snapshot.moneyAccounts)
-        try validateAccountTransfers(snapshot.accountTransfers, moneyAccounts: snapshot.moneyAccounts)
+        let sanitizedReferencesSnapshot = referenceSanitizer.sanitize(snapshot)
+        let sanitizedFinancialSnapshot = try financialStateSanitizer.sanitize(sanitizedReferencesSnapshot)
 
-        let budget = normalizedBudget(snapshot.monthlyBudget)
-        let notificationPreferences = sanitizedNotificationPreferences(snapshot.notificationPreferences)
-        let profileImageData = try validatedProfileImageData(snapshot.profileImageData)
-        let profileDisplayName = sanitizedProfileDisplayName(snapshot.profileDisplayName)
+        try validateExpenses(sanitizedFinancialSnapshot.expenses)
+        try validateIncomes(sanitizedFinancialSnapshot.incomes)
+        try validateDebts(sanitizedFinancialSnapshot.debts)
+        try validateRecurringPayments(sanitizedFinancialSnapshot.recurringPayments)
+        try validateMoneyAccounts(sanitizedFinancialSnapshot.moneyAccounts)
+        try validateAccountTransfers(
+            sanitizedFinancialSnapshot.accountTransfers,
+            moneyAccounts: sanitizedFinancialSnapshot.moneyAccounts
+        )
+
+        let budget = normalizedBudget(sanitizedFinancialSnapshot.monthlyBudget)
+        let notificationPreferences = sanitizedNotificationPreferences(sanitizedFinancialSnapshot.notificationPreferences)
+        let expenseCustomCategories = sanitizedExpenseCustomCategories(sanitizedFinancialSnapshot.expenseCustomCategories)
+        let incomeCustomCategories = sanitizedIncomeCustomCategories(sanitizedFinancialSnapshot.incomeCustomCategories)
+        let moneyAccountCustomCategories = sanitizedMoneyAccountCustomCategories(sanitizedFinancialSnapshot.moneyAccountCustomCategories)
+        let profileImageData = try validatedProfileImageData(sanitizedFinancialSnapshot.profileImageData)
+        let profileDisplayName = sanitizedProfileDisplayName(sanitizedFinancialSnapshot.profileDisplayName)
 
         return AppBackupSnapshot(
-            version: snapshot.version,
-            exportedAt: snapshot.exportedAt,
+            version: sanitizedFinancialSnapshot.version,
+            exportedAt: sanitizedFinancialSnapshot.exportedAt,
             sourceUser: cleanSourceUser,
-            expenses: snapshot.expenses,
-            incomes: snapshot.incomes,
-            debts: snapshot.debts,
-            recurringPayments: snapshot.recurringPayments,
-            moneyAccounts: snapshot.moneyAccounts,
-            accountTransfers: snapshot.accountTransfers,
+            expenses: sanitizedFinancialSnapshot.expenses,
+            incomes: sanitizedFinancialSnapshot.incomes,
+            debts: sanitizedFinancialSnapshot.debts,
+            recurringPayments: sanitizedFinancialSnapshot.recurringPayments,
+            moneyAccounts: sanitizedFinancialSnapshot.moneyAccounts,
+            accountTransfers: sanitizedFinancialSnapshot.accountTransfers,
             monthlyBudget: budget,
             notificationPreferences: notificationPreferences,
+            expenseCustomCategories: expenseCustomCategories,
+            incomeCustomCategories: incomeCustomCategories,
+            moneyAccountCustomCategories: moneyAccountCustomCategories,
             profileImageData: profileImageData,
             profileDisplayName: profileDisplayName
         )
@@ -348,7 +384,8 @@ final class AppBackupService {
                   debt.totalLimit.isFinite,
                   debt.remainingDebt.isFinite,
                   debt.totalLimit >= 0,
-                  debt.remainingDebt >= 0 else {
+                  debt.remainingDebt >= 0,
+                  debt.remainingDebt <= debt.totalLimit else {
                 throw AppBackupError.invalidSnapshot
             }
         }
@@ -384,7 +421,8 @@ final class AppBackupService {
 
         for account in accounts {
             guard !account.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  account.balance.isFinite else {
+                  account.balance.isFinite,
+                  account.balance >= 0 else {
                 throw AppBackupError.invalidSnapshot
             }
         }
@@ -419,10 +457,14 @@ final class AppBackupService {
         ? min(max(preferences.budgetAlertThreshold, 0), 1)
         : 0.80
 
+        let leadDays = min(max(preferences.recurringReminderLeadDays, 0), 3)
+
         return NotificationPreferences(
             recurringPaymentsEnabled: preferences.recurringPaymentsEnabled,
+            recurringReminderLeadDays: leadDays,
             budgetAlertsEnabled: preferences.budgetAlertsEnabled,
-            budgetAlertThreshold: threshold
+            budgetAlertThreshold: threshold,
+            dailySummaryEnabled: preferences.dailySummaryEnabled
         )
     }
 
@@ -463,5 +505,50 @@ final class AppBackupService {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd_HH-mm"
         return "nexora_backup_\(formatter.string(from: Date())).json"
+    }
+}
+
+private func sanitizedExpenseCustomCategories(_ items: [CustomExpenseCategory]) -> [CustomExpenseCategory] {
+    var seen: Set<String> = []
+
+    return items.compactMap { item in
+        let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let key = trimmed.lowercased()
+        guard !seen.contains(key) else { return nil }
+
+        seen.insert(key)
+        return CustomExpenseCategory(id: item.id, name: trimmed, style: item.style)
+    }
+}
+
+private func sanitizedIncomeCustomCategories(_ items: [CustomIncomeCategory]) -> [CustomIncomeCategory] {
+    var seen: Set<String> = []
+
+    return items.compactMap { item in
+        let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let key = trimmed.lowercased()
+        guard !seen.contains(key) else { return nil }
+
+        seen.insert(key)
+        return CustomIncomeCategory(id: item.id, name: trimmed, style: item.style)
+    }
+}
+
+private func sanitizedMoneyAccountCustomCategories(_ items: [CustomMoneyAccountCategory]) -> [CustomMoneyAccountCategory] {
+    var seen: Set<String> = []
+
+    return items.compactMap { item in
+        let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let key = trimmed.lowercased()
+        guard !seen.contains(key) else { return nil }
+
+        seen.insert(key)
+        return CustomMoneyAccountCategory(id: item.id, name: trimmed, style: item.style)
     }
 }

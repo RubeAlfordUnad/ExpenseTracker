@@ -39,6 +39,8 @@ struct ExpenseHistoryView: View {
     private let moneyAccountSync = MoneyAccountBalanceSync()
     private let expenseFundingSync = ExpenseFundingSync()
     private let transferService = ExpensesTransferService()
+    private let importedExpenseMergeService = ImportedExpenseMergeService()
+    private let recurringPaymentExpenseSync = RecurringPaymentExpenseSync()
 
     private enum HistoryTab: String, CaseIterable, Identifiable {
         case overview
@@ -495,6 +497,7 @@ struct ExpenseHistoryView: View {
                 AddIncomeView(existingIncome: income, moneyAccounts: moneyAccounts) { updatedIncome in
                     updateIncome(updatedIncome)
                 }
+                .environmentObject(auth)
                 .environmentObject(settings)
             }
             .fileImporter(
@@ -1182,6 +1185,7 @@ struct ExpenseHistoryView: View {
                             systemImage: "square.and.pencil"
                         )
                     }
+                    .accessibilityIdentifier("history.edit.expense")
 
                     Button(role: .destructive) {
                         pendingDelete = .expense(expense)
@@ -1191,6 +1195,7 @@ struct ExpenseHistoryView: View {
                             systemImage: "trash"
                         )
                     }
+                    .accessibilityIdentifier("history.delete.expense")
                 }
 
                 if let income = entry.income {
@@ -1202,6 +1207,7 @@ struct ExpenseHistoryView: View {
                             systemImage: "square.and.pencil"
                         )
                     }
+                    .accessibilityIdentifier("history.edit.income")
 
                     Button(role: .destructive) {
                         pendingDelete = .income(income)
@@ -1211,12 +1217,14 @@ struct ExpenseHistoryView: View {
                             systemImage: "trash"
                         )
                     }
+                    .accessibilityIdentifier("history.delete.income")
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
                     .foregroundColor(.secondary)
             }
+            .accessibilityIdentifier("history.entry.menu")
         }
         .padding(16)
         .background(BrandPalette.surface)
@@ -1411,7 +1419,18 @@ struct ExpenseHistoryView: View {
         var debts = DataManager.shared.loadDebts(user: auth.currentUser)
         expenseFundingSync.applyExpenseDeletion(expense, accounts: &moneyAccounts, debts: &debts)
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
         expenses.removeAll { $0.id == expense.id }
+
+        var recurringPayments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
+        let clearedRecurringPayments = recurringPaymentExpenseSync.clearPaidStatusLinked(
+            to: expense.id,
+            payments: &recurringPayments
+        )
+
+        if clearedRecurringPayments > 0 {
+            DataManager.shared.saveRecurringPayments(recurringPayments, user: auth.currentUser)
+        }
 
         onPersistExpenses()
         onPersistMoneyAccounts()
@@ -1480,8 +1499,23 @@ struct ExpenseHistoryView: View {
             let contentType = UTType(filenameExtension: url.pathExtension)
             let importResult = try transferService.importExpenses(from: data, contentType: contentType)
 
-            let mergeResult = mergeImportedExpenses(importResult.expenses)
-            onPersistExpenses()
+            var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+
+            let mergeResult = importedExpenseMergeService.merge(
+                existingExpenses: expenses,
+                importedExpenses: importResult.expenses,
+                accounts: &moneyAccounts,
+                debts: &debts
+            )
+
+            expenses = mergeResult.expenses
+
+            if mergeResult.inserted > 0 {
+                DataManager.shared.saveDebts(debts, user: auth.currentUser)
+                onPersistExpenses()
+                onPersistMoneyAccounts()
+            }
+
             configureInitialSelection()
             normalizeLedgerFiltersIfNeeded()
 
@@ -1490,47 +1524,11 @@ struct ExpenseHistoryView: View {
                 importedRows: importResult.importedRows,
                 insertedRows: mergeResult.inserted,
                 duplicateRows: mergeResult.duplicates,
-                skippedRows: importResult.skippedRows
+                skippedRows: importResult.skippedRows + mergeResult.invalidFinancialRows
             )
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-
-    private func mergeImportedExpenses(_ imported: [Expense]) -> (inserted: Int, duplicates: Int) {
-        var existingKeys = Set(expenses.map { duplicateKey(for: $0) })
-        var merged = expenses
-        var inserted = 0
-        var duplicates = 0
-
-        for expense in imported {
-            let key = duplicateKey(for: expense)
-
-            if existingKeys.contains(key) {
-                duplicates += 1
-                continue
-            }
-
-            existingKeys.insert(key)
-            merged.append(expense)
-            inserted += 1
-        }
-
-        expenses = merged.sorted { $0.date > $1.date }
-        return (inserted, duplicates)
-    }
-
-    private func duplicateKey(for expense: Expense) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM-dd"
-
-        return [
-            expense.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-            String(format: "%.2f", expense.amount),
-            formatter.string(from: expense.date),
-            expense.category.rawValue.lowercased()
-        ].joined(separator: "|")
     }
 
     private func makeImportSummary(
@@ -1548,7 +1546,7 @@ struct ExpenseHistoryView: View {
             Filas válidas importadas: \(importedRows)
             Nuevos gastos agregados: \(insertedRows)
             Duplicados omitidos: \(duplicateRows)
-            Filas inválidas omitidas: \(skippedRows)
+            Filas inválidas o inseguras omitidas: \(skippedRows)
             """
         } else {
             return """
@@ -1558,7 +1556,7 @@ struct ExpenseHistoryView: View {
             Valid rows imported: \(importedRows)
             New expenses added: \(insertedRows)
             Duplicates skipped: \(duplicateRows)
-            Invalid rows skipped: \(skippedRows)
+            Invalid or unsafe rows skipped: \(skippedRows)
             """
         }
     }

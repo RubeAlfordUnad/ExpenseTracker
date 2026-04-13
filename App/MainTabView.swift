@@ -204,7 +204,12 @@ struct MainTabView: View {
                         .presentationDragIndicator(.visible)
                     }
                     .sheet(isPresented: $showMoneyAccountsSheet) {
-                        MoneyAccountsSheetView(accounts: moneyAccounts) { updatedAccounts in
+                        MoneyAccountsSheetView(
+                            accounts: moneyAccounts,
+                            expenses: expenses,
+                            incomes: incomes,
+                            transfers: accountTransfers
+                        ) { updatedAccounts in
                             moneyAccounts = updatedAccounts
                             persistMoneyAccounts()
                         }

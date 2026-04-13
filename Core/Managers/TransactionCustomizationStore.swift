@@ -181,11 +181,12 @@ final class TransactionCustomizationStore {
                 date: income.date,
                 category: income.category,
                 customCategoryName: metadata.customCategoryName ?? income.customCategoryName,
+                moneyAccountId: income.moneyAccountId,
                 comment: metadata.comment ?? income.comment
             )
         }
     }
-
+    
     // MARK: - Cleanup
 
     func deleteAllData(for user: String) {
