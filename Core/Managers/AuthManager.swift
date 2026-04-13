@@ -10,6 +10,32 @@ private struct LegacyStoredUser: Codable {
     let password: String
 }
 
+enum AuthRegistrationResult: Equatable {
+    case success(recoveryCode: String)
+    case invalidInput
+    case usernameExists
+    case credentialStoreFailure
+    case recoveryCodeStoreFailure
+}
+
+enum AuthPasswordChangeResult: Equatable {
+    case success
+    case notAvailable
+    case invalidCurrentPassword
+    case invalidNewPassword
+    case samePassword
+    case saveFailed
+}
+
+enum AuthPasswordRecoveryResult: Equatable {
+    case success
+    case invalidInput
+    case unknownUser
+    case missingRecoveryCode
+    case invalidRecoveryCode
+    case saveFailed
+}
+
 final class AuthManager: ObservableObject {
 
     @Published var isLoggedIn = false
@@ -35,6 +61,12 @@ final class AuthManager: ObservableObject {
         isUsingLocalMode ? "Local" : currentUser
     }
 
+    var hasRecoveryCodeForCurrentUser: Bool {
+        let username = sanitizeUsername(currentUser)
+        guard !username.isEmpty, !isUsingLocalMode else { return false }
+        return KeychainManager.shared.hasRecoveryCode(for: username)
+    }
+
     @discardableResult
     func continueLocally() -> Bool {
         currentUser = localModeUserKey
@@ -44,25 +76,43 @@ final class AuthManager: ObservableObject {
         return true
     }
 
+    @discardableResult
     func register(username: String, password: String) -> Bool {
+        if case .success = registerWithRecoveryCode(username: username, password: password) {
+            return true
+        }
+        return false
+    }
+
+    func registerWithRecoveryCode(username: String, password: String) -> AuthRegistrationResult {
         let cleanUsername = sanitizeUsername(username)
-        guard !cleanUsername.isEmpty, !password.isEmpty else {
-            return false
+        let cleanPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanUsername.isEmpty, !cleanPassword.isEmpty else {
+            return .invalidInput
         }
 
         var usernames = loadUsernames()
 
         if usernames.contains(cleanUsername) {
-            return false
+            return .usernameExists
         }
 
-        guard KeychainManager.shared.savePassword(password, for: cleanUsername) else {
-            return false
+        guard KeychainManager.shared.savePassword(cleanPassword, for: cleanUsername) else {
+            return .credentialStoreFailure
+        }
+
+        let recoveryCode = RecoveryCodeManager.shared.generateCode()
+        let recoveryHash = RecoveryCodeManager.shared.hash(recoveryCode)
+
+        guard KeychainManager.shared.saveRecoveryCodeHash(recoveryHash, for: cleanUsername) else {
+            _ = KeychainManager.shared.deletePassword(for: cleanUsername)
+            return .recoveryCodeStoreFailure
         }
 
         usernames.append(cleanUsername)
         saveUsernames(usernames)
-        return true
+        return .success(recoveryCode: recoveryCode)
     }
 
     func login(username: String, password: String) -> Bool {
@@ -86,6 +136,70 @@ final class AuthManager: ObservableObject {
         UserDefaults.standard.set(cleanUsername, forKey: sessionKey)
         NotificationManager.shared.syncRecurringPaymentNotifications(for: cleanUsername)
         return true
+    }
+
+    func changePassword(currentPassword: String, newPassword: String) -> AuthPasswordChangeResult {
+        let username = sanitizeUsername(currentUser)
+        guard !username.isEmpty, !isUsingLocalMode else {
+            return .notAvailable
+        }
+
+        let cleanCurrentPassword = currentPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNewPassword = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanCurrentPassword.isEmpty, !cleanNewPassword.isEmpty else {
+            return .invalidNewPassword
+        }
+
+        guard let savedPassword = KeychainManager.shared.readPassword(for: username),
+              savedPassword == cleanCurrentPassword else {
+            return .invalidCurrentPassword
+        }
+
+        guard cleanNewPassword != savedPassword else {
+            return .samePassword
+        }
+
+        guard KeychainManager.shared.savePassword(cleanNewPassword, for: username) else {
+            return .saveFailed
+        }
+
+        return .success
+    }
+
+    func recoverPassword(username: String, recoveryCode: String, newPassword: String) -> AuthPasswordRecoveryResult {
+        let cleanUsername = sanitizeUsername(username)
+        let cleanRecoveryCode = recoveryCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanNewPassword = newPassword.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !cleanUsername.isEmpty, !cleanRecoveryCode.isEmpty, !cleanNewPassword.isEmpty else {
+            return .invalidInput
+        }
+
+        let usernames = loadUsernames()
+        guard usernames.contains(cleanUsername) else {
+            return .unknownUser
+        }
+
+        guard let storedHash = KeychainManager.shared.readRecoveryCodeHash(for: cleanUsername) else {
+            return .missingRecoveryCode
+        }
+
+        guard RecoveryCodeManager.shared.matches(cleanRecoveryCode, storedHash: storedHash) else {
+            return .invalidRecoveryCode
+        }
+
+        guard KeychainManager.shared.savePassword(cleanNewPassword, for: cleanUsername) else {
+            return .saveFailed
+        }
+
+        return .success
+    }
+
+    func generateRecoveryCodeForCurrentUser() -> String? {
+        let username = sanitizeUsername(currentUser)
+        guard !username.isEmpty, !isUsingLocalMode else { return nil }
+        return generateRecoveryCode(for: username)
     }
 
     func logout() {
@@ -117,6 +231,7 @@ final class AuthManager: ObservableObject {
 
         if !isUsingLocalMode {
             _ = KeychainManager.shared.deletePassword(for: username)
+            _ = KeychainManager.shared.deleteRecoveryCodeHash(for: username)
 
             var usernames = loadUsernames()
             usernames.removeAll { $0 == username }
@@ -125,6 +240,20 @@ final class AuthManager: ObservableObject {
 
         logout()
         return true
+    }
+
+    private func generateRecoveryCode(for username: String) -> String? {
+        let cleanUsername = sanitizeUsername(username)
+        guard !cleanUsername.isEmpty else { return nil }
+
+        let recoveryCode = RecoveryCodeManager.shared.generateCode()
+        let recoveryHash = RecoveryCodeManager.shared.hash(recoveryCode)
+
+        guard KeychainManager.shared.saveRecoveryCodeHash(recoveryHash, for: cleanUsername) else {
+            return nil
+        }
+
+        return recoveryCode
     }
 
     private func loadUsernames() -> [String] {

@@ -12,6 +12,9 @@ struct LoginView: View {
     @State private var isRegister = false
     @State private var errorMsg = ""
     @State private var logoVisible = false
+    @State private var showForgotPassword = false
+    @State private var showRecoveryCodeSheet = false
+    @State private var generatedRecoveryCode = ""
 
     @FocusState private var isInputActive: Bool
 
@@ -133,6 +136,22 @@ struct LoginView: View {
                             placeholder: settings.t("login.password"),
                             text: $password
                         )
+
+                        if !isRegister {
+                            HStack {
+                                Spacer()
+
+                                Button {
+                                    isInputActive = false
+                                    showForgotPassword = true
+                                } label: {
+                                    Text(settings.language == .spanish ? "¿Olvidaste tu contraseña?" : "Forgot your password?")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundColor(BrandPalette.primary)
+                                }
+                                .accessibilityIdentifier("auth.forgotPassword")
+                            }
+                        }
                     }
 
                     if !errorMsg.isEmpty {
@@ -227,6 +246,18 @@ struct LoginView: View {
             isInputActive = false
             hideKeyboard()
         }
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView()
+                .environmentObject(auth)
+                .environmentObject(settings)
+        }
+        .sheet(isPresented: $showRecoveryCodeSheet) {
+            RecoveryCodeDisplayView(
+                code: generatedRecoveryCode,
+                context: .afterRegistration
+            )
+            .environmentObject(settings)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .keyboard) {
                 Spacer()
@@ -290,12 +321,26 @@ struct LoginView: View {
         }
 
         if isRegister {
-            if auth.register(username: username, password: password) {
-                errorMsg = settings.t("login.error.created")
+            switch auth.registerWithRecoveryCode(username: username, password: password) {
+            case .success(let recoveryCode):
+                generatedRecoveryCode = recoveryCode
+                showRecoveryCodeSheet = true
+                errorMsg = settings.language == .spanish
+                    ? "Cuenta creada. Guarda tu código de recuperación y luego inicia sesión."
+                    : "Account created. Save your recovery code and then sign in."
                 isRegister = false
                 password = ""
-            } else {
+
+            case .invalidInput:
+                errorMsg = settings.t("login.error.complete")
+
+            case .usernameExists:
                 errorMsg = settings.t("login.error.exists")
+
+            case .credentialStoreFailure, .recoveryCodeStoreFailure:
+                errorMsg = settings.language == .spanish
+                    ? "No se pudo crear la cuenta de forma segura en este dispositivo."
+                    : "The account could not be created securely on this device."
             }
         } else {
             if !auth.login(username: username, password: password) {
