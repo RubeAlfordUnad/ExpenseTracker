@@ -41,19 +41,16 @@ struct TermsView: View {
             5. Disponibilidad de funciones
             Algunas funciones pueden cambiar, actualizarse o eliminarse en versiones futuras. El desarrollador puede modificar la app para mejorar estabilidad, diseño, compatibilidad y seguridad.
 
-            6. Servicios externos
-            Algunas funciones opcionales, como tipo de cambio, pueden depender de servicios de terceros. Esas funciones pueden cambiar o dejar de estar disponibles sin previo aviso.
-
-            7. Propiedad intelectual
+            6. Propiedad intelectual
             El diseño, marca, textos, iconografía y código de \(AppMetadata.displayName) están protegidos por las normas aplicables de propiedad intelectual. No se autoriza su copia, redistribución o explotación sin permiso del titular.
 
-            8. Eliminación de cuenta
+            7. Eliminación de cuenta
             Puedes eliminar tu cuenta local desde la sección Perfil dentro de la app. La eliminación borra los datos locales asociados a ese usuario en el dispositivo actual.
 
-            9. Cambios a estos términos
+            8. Cambios a estos términos
             Estos términos pueden actualizarse en futuras versiones. El uso continuado de la app después de una actualización implica aceptación de la versión vigente.
 
-            10. Contacto
+            9. Contacto
             Si necesitas soporte general relacionado con la app, puedes escribir a:
             \(AppMetadata.supportEmail)
             """
@@ -77,19 +74,16 @@ struct TermsView: View {
             5. Feature availability
             Some features may change, be updated, or be removed in future versions. The developer may modify the app to improve stability, design, compatibility, and security.
 
-            6. External services
-            Some optional features, such as exchange rates, may depend on third-party services. These features may change or become unavailable without prior notice.
-
-            7. Intellectual property
+            6. Intellectual property
             \(AppMetadata.displayName)’s design, brand, text, iconography, and code are protected by applicable intellectual property laws. Copying, redistributing, or commercially exploiting them without permission is not allowed.
 
-            8. Account deletion
+            7. Account deletion
             You can delete your local account from the Profile section inside the app. Deletion removes local data associated with that user on the current device.
 
-            9. Changes to these terms
+            8. Changes to these terms
             These terms may be updated in future versions. Continued use of the app after an update means acceptance of the current version.
 
-            10. Contact
+            9. Contact
             If you need general app support, contact:
             \(AppMetadata.supportEmail)
             """

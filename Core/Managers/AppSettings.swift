@@ -11,7 +11,6 @@ final class AppSettings: ObservableObject {
         static let country = "app_country"
         static let useAutomaticCurrency = "use_automatic_currency"
         static let manualCurrency = "manual_currency"
-        static let exchangeTargetCurrency = "exchange_target_currency"
     }
 
     private let defaults = UserDefaults.standard
@@ -27,31 +26,22 @@ final class AppSettings: ObservableObject {
             defaults.set(language.rawValue, forKey: Keys.language)
         }
     }
-
+    
     @Published var country: AppCountry {
         didSet {
             defaults.set(country.rawValue, forKey: Keys.country)
-            normalizeExchangeTargetIfNeeded()
         }
     }
 
     @Published var useAutomaticCurrency: Bool {
         didSet {
             defaults.set(useAutomaticCurrency, forKey: Keys.useAutomaticCurrency)
-            normalizeExchangeTargetIfNeeded()
         }
     }
 
     @Published var manualCurrency: AppCurrency {
         didSet {
             defaults.set(manualCurrency.rawValue, forKey: Keys.manualCurrency)
-            normalizeExchangeTargetIfNeeded()
-        }
-    }
-
-    @Published var exchangeRateTargetCurrency: AppCurrency {
-        didSet {
-            defaults.set(exchangeRateTargetCurrency.rawValue, forKey: Keys.exchangeTargetCurrency)
         }
     }
 
@@ -67,11 +57,10 @@ final class AppSettings: ObservableObject {
         default:
             language = .spanish
         }
+
         country = AppCountry(rawValue: defaults.string(forKey: Keys.country) ?? "") ?? .colombia
         useAutomaticCurrency = defaults.object(forKey: Keys.useAutomaticCurrency) as? Bool ?? true
         manualCurrency = AppCurrency(rawValue: defaults.string(forKey: Keys.manualCurrency) ?? "") ?? .cop
-        exchangeRateTargetCurrency = AppCurrency(rawValue: defaults.string(forKey: Keys.exchangeTargetCurrency) ?? "") ?? .usd
-        normalizeExchangeTargetIfNeeded()
     }
 
     var effectiveCurrency: AppCurrency {
@@ -86,18 +75,6 @@ final class AppSettings: ObservableObject {
         AppCurrency.allCases.filter { $0 != effectiveCurrency }
     }
     
-    var exchangeRateIsAvailable: Bool {
-        effectiveCurrency.isSupportedByExchangeAPI
-    }
-
-    var exchangeCompatibleCurrencies: [AppCurrency] {
-        AppCurrency.allCases.filter(\.isSupportedByExchangeAPI)
-    }
-
-    var alternativeExchangeCurrencies: [AppCurrency] {
-        exchangeCompatibleCurrencies.filter { $0 != effectiveCurrency }
-    }
-
     func formatCurrency(_ value: Double, decimals: Int = 0) -> String {
         value.asCurrency(
             code: effectiveCurrency.rawValue,
@@ -139,16 +116,6 @@ final class AppSettings: ObservableObject {
         String(format: t(key), locale: appLocale, arguments: args)
     }
 
-    private func normalizeExchangeTargetIfNeeded() {
-        if !effectiveCurrency.isSupportedByExchangeAPI {
-            exchangeRateTargetCurrency = .usd
-            return
-        }
-
-        if exchangeRateTargetCurrency == effectiveCurrency || !exchangeRateTargetCurrency.isSupportedByExchangeAPI {
-            exchangeRateTargetCurrency = alternativeExchangeCurrencies.first ?? .usd
-        }
-    }
     private let translations: [AppLanguage: [String: String]] = [
         .spanish: [
             "common.cancel": "Cancelar",
@@ -220,14 +187,12 @@ final class AppSettings: ObservableObject {
             "settings.language": "Idioma",
             "settings.theme": "Tema",
             "settings.regionCurrency": "País y moneda",
-            "settings.exchangeRate": "Tipo de cambio",
             "settings.terms": "Términos y condiciones",
             "settings.profileSubtitle": "Foto de perfil y avatar",
             "settings.notificationsSubtitle": "Permisos y alertas del presupuesto",
             "settings.languageSubtitle": "Elige cómo se muestra el texto",
             "settings.themeSubtitle": "Sistema, claro u oscuro",
             "settings.regionSubtitle": "Región, moneda automática o manual",
-            "settings.exchangeSubtitle": "Consulta la tasa actual entre monedas",
 
             "profile.title": "Perfil",
             "profile.changePhoto": "Cambiar foto",
@@ -246,14 +211,6 @@ final class AppSettings: ObservableObject {
             "region.currentCurrency": "Moneda actual",
             "region.preview": "Vista previa",
             "region.note": "Si activas la moneda automática, la app usará la divisa sugerida por el país seleccionado.",
-
-            "exchange.title": "Tipo de cambio",
-            "exchange.baseCurrency": "Moneda base",
-            "exchange.targetCurrency": "Comparar con",
-            "exchange.currentRate": "Cambio actual",
-            "exchange.lastUpdate": "Última actualización",
-            "exchange.sample": "Ejemplo con 100 unidades",
-            "exchange.error": "No se pudo obtener el tipo de cambio.",
 
             "notifications.title": "Notificaciones",
             "notifications.permissions": "Permisos",
@@ -311,9 +268,6 @@ final class AppSettings: ObservableObject {
             "expense.category": "Categoría",
 
             "terms.title": "Términos",
-            
-            "exchange.unavailableTitle": "No disponible para esta moneda",
-            "exchange.unavailableMessage": "La fuente actual de tasas no soporta %@ como moneda base. Cambia la moneda manual a USD, EUR, MXN, BRL o GBP, o usa otra API para soportar COP.",
             
             "profile.dangerZone": "Zona de peligro",
             "profile.deleteAccount": "Eliminar cuenta",
@@ -428,14 +382,12 @@ final class AppSettings: ObservableObject {
             "settings.language": "Language",
             "settings.theme": "Theme",
             "settings.regionCurrency": "Country and currency",
-            "settings.exchangeRate": "Exchange rate",
             "settings.terms": "Terms and conditions",
             "settings.profileSubtitle": "Profile photo and avatar",
             "settings.notificationsSubtitle": "Permissions and budget alerts",
             "settings.languageSubtitle": "Choose how text is displayed",
             "settings.themeSubtitle": "System, light or dark",
             "settings.regionSubtitle": "Region, auto currency or manual override",
-            "settings.exchangeSubtitle": "Check the current rate between currencies",
 
             "profile.title": "Profile",
             "profile.changePhoto": "Change photo",
@@ -454,14 +406,6 @@ final class AppSettings: ObservableObject {
             "region.currentCurrency": "Current currency",
             "region.preview": "Preview",
             "region.note": "When automatic currency is enabled, the app uses the currency suggested by the selected country.",
-
-            "exchange.title": "Exchange rate",
-            "exchange.baseCurrency": "Base currency",
-            "exchange.targetCurrency": "Compare with",
-            "exchange.currentRate": "Current rate",
-            "exchange.lastUpdate": "Last update",
-            "exchange.sample": "Example with 100 units",
-            "exchange.error": "The exchange rate could not be loaded.",
 
             "notifications.title": "Notifications",
             "notifications.permissions": "Permissions",
@@ -519,8 +463,6 @@ final class AppSettings: ObservableObject {
             "expense.category": "Category",
 
             "terms.title": "Terms",
-            "exchange.unavailableTitle": "Not available for this currency",
-            "exchange.unavailableMessage": "The current rate source does not support %@ as a base currency. Switch the manual currency to USD, EUR, MXN, BRL or GBP, or use another API to support COP.",
             
             "profile.dangerZone": "Danger zone",
             "profile.deleteAccount": "Delete account",

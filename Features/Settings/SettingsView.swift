@@ -84,16 +84,6 @@ struct SettingsView: View {
                 }
                 .accessibilityIdentifier("settings.regionCurrency")
 
-                NavigationLink {
-                    ExchangeRateView()
-                } label: {
-                    settingRow(
-                        icon: "chart.line.text.clipboard",
-                        title: settings.t("settings.exchangeRate"),
-                        subtitle: "\(settings.effectiveCurrency.rawValue) → \(settings.exchangeRateTargetCurrency.rawValue)"
-                    )
-                }
-                .accessibilityIdentifier("settings.exchangeRate")
             } header: {
                 Text(settings.t("settings.section.app"))
             }

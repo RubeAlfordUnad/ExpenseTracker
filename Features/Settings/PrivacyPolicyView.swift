@@ -88,27 +88,24 @@ struct PrivacyPolicyView: View {
             En la versión actual, la mayor parte de la información se guarda localmente en tu dispositivo.
             \(AppMetadata.displayName) no vende tus datos personales ni los comparte con fines publicitarios.
 
-            5. Servicios externos
-            Si usas la función de tipo de cambio, la app puede consultar un servicio externo para obtener tasas de conversión. Esa solicitud puede incluir la moneda base y la moneda objetivo seleccionadas por el usuario. Esta función es opcional.
-
-            6. Permisos del dispositivo
+            5. Permisos del dispositivo
             \(AppMetadata.displayName) puede solicitar:
             - acceso a notificaciones, para recordatorios de pagos y alertas de presupuesto
             - autenticación biométrica, para proteger el acceso a la app cuando lo habilitas
             - acceso a fotos, si eliges una imagen de perfil
 
-            7. Eliminación de cuenta y datos
+            6. Eliminación de cuenta y datos
             Puedes eliminar tu cuenta local y sus datos asociados desde la sección Perfil dentro de la app.
             Al eliminar la cuenta se borran los datos locales asociados a ese usuario en ese dispositivo.
 
-            8. Menores de edad
+            7. Menores de edad
             \(AppMetadata.displayName) no está dirigida intencionalmente a menores de 13 años.
 
-            9. Cambios a esta política
+            8. Cambios a esta política
             Esta política puede actualizarse cuando cambien funciones, flujos de datos o requisitos legales.
             Cuando eso ocurra, la fecha de última actualización también cambiará.
 
-            10. Contacto
+            9. Contacto
             Si necesitas ayuda sobre privacidad, soporte o eliminación de datos, puedes escribir a:
             \(AppMetadata.supportEmail)
             """
@@ -142,27 +139,24 @@ struct PrivacyPolicyView: View {
             In the current version, most information is stored locally on your device.
             \(AppMetadata.displayName) does not sell your personal data or share it for advertising purposes.
 
-            5. External services
-            If you use the exchange rate feature, the app may contact an external service to fetch currency conversion rates. That request may include the base currency and target currency selected by the user. This feature is optional.
-
-            6. Device permissions
+            5. Device permissions
             \(AppMetadata.displayName) may request:
             - notification permission, for payment reminders and budget alerts
             - biometric authentication, to protect app access when you enable it
             - photo access, if you choose a profile image
 
-            7. Account and data deletion
+            6. Account and data deletion
             You can delete your local account and associated data from the Profile section inside the app.
             Deleting the account removes local data associated with that user on that device.
 
-            8. Children
+            7. Children
             \(AppMetadata.displayName) is not intentionally directed to children under 13.
 
-            9. Changes to this policy
+            8. Changes to this policy
             This policy may be updated when app features, data flows, or legal requirements change.
             When that happens, the last updated date will also change.
 
-            10. Contact
+            9. Contact
             If you need help regarding privacy, support, or data deletion, contact:
             \(AppMetadata.supportEmail)
             """

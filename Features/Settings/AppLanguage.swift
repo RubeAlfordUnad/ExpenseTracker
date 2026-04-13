@@ -56,15 +56,6 @@ enum AppCurrency: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
-    var isSupportedByExchangeAPI: Bool {
-        switch self {
-        case .usd, .eur, .mxn, .brl, .gbp:
-            return true
-        case .cop, .pen, .clp, .ars:
-            return false
-        }
-    }
-
     func title(for language: AppLanguage) -> String {
         switch (self, language) {
         case (.cop, .spanish): return "Peso colombiano"

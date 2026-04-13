@@ -27,7 +27,6 @@ enum UITestResetManager {
             "app_country",
             "use_automatic_currency",
             "manual_currency",
-            "exchange_target_currency"
         ]
 
         globalKeys.forEach { defaults.removeObject(forKey: $0) }
