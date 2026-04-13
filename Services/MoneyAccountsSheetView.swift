@@ -15,6 +15,7 @@ struct MoneyAccountsSheetView: View {
     let expenses: [Expense]
     let incomes: [Income]
     let transfers: [AccountTransfer]
+    let startInCreateMode: Bool
     let onSave: ([MoneyAccount]) -> Void
 
     private let deletionGuard = MoneyAccountDeletionGuard()
@@ -24,6 +25,7 @@ struct MoneyAccountsSheetView: View {
         expenses: [Expense],
         incomes: [Income],
         transfers: [AccountTransfer],
+        startInCreateMode: Bool = false,
         onSave: @escaping ([MoneyAccount]) -> Void
     ) {
         _draftAccounts = State(initialValue: accounts.sorted {
@@ -32,6 +34,7 @@ struct MoneyAccountsSheetView: View {
         self.expenses = expenses
         self.incomes = incomes
         self.transfers = transfers
+        self.startInCreateMode = startInCreateMode
         self.onSave = onSave
     }
 
@@ -176,6 +179,10 @@ struct MoneyAccountsSheetView: View {
                 Button("OK", role: .cancel) { }
             } message: {
                 Text(deletionBlockedMessage)
+            }
+            .onAppear {
+                guard startInCreateMode, activeEditor == nil else { return }
+                activeEditor = .create
             }
         }
     }

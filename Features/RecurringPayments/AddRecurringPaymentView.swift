@@ -2,14 +2,18 @@ import SwiftUI
 
 struct AddRecurringPaymentView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var settings: AppSettings
 
     @State private var title: String
     @State private var amount: String
     @State private var dueDay: Int
     @State private var category: RecurringPaymentCategory
+    @State private var customCategoryName: String
     @State private var isActive: Bool
 
+    @State private var customCategories: [CustomRecurringPaymentCategory] = []
+    @State private var showManageCategories = false
     @State private var showValidationAlert = false
     @State private var showDayPickerSheet = false
 
@@ -29,6 +33,7 @@ struct AddRecurringPaymentView: View {
         )
         _dueDay = State(initialValue: existingPayment?.dueDay ?? 1)
         _category = State(initialValue: existingPayment?.category ?? .other)
+        _customCategoryName = State(initialValue: existingPayment?.customCategoryName ?? "")
         _isActive = State(initialValue: existingPayment?.isActive ?? true)
     }
 
@@ -81,12 +86,68 @@ struct AddRecurringPaymentView: View {
                     Picker(settings.t("expense.category"), selection: $category) {
                         ForEach(RecurringPaymentCategory.allCases, id: \.self) { item in
                             Text(item.displayName(language: settings.language))
+                                .tag(item)
                         }
                     }
                     .accessibilityIdentifier("recurring.category.picker")
 
                     Toggle(activeToggleTitle, isOn: $isActive)
                         .accessibilityIdentifier("recurring.active.toggle")
+                }
+
+                Section {
+                    TextField(
+                        settings.language == .spanish ? "Categoría personalizada (opcional)" : "Custom category (optional)",
+                        text: $customCategoryName
+                    )
+                    .accessibilityIdentifier("recurring.customCategory")
+
+                    if !customCategories.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(customCategories) { item in
+                                    Button {
+                                        customCategoryName = item.name
+                                        category = item.style
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: item.style.icon)
+                                            Text(item.name)
+                                        }
+                                        .font(.caption.weight(.medium))
+                                        .foregroundColor(item.style.color)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(item.style.color.opacity(0.12))
+                                        .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+
+                    Button {
+                        saveReusableCustomCategory()
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Guardar categoría personalizada" : "Save custom category",
+                            systemImage: "square.and.arrow.down"
+                        )
+                    }
+                    .disabled(FormValidator.trim(customCategoryName).isEmpty)
+
+                    Button {
+                        showManageCategories = true
+                    } label: {
+                        Label(
+                            settings.language == .spanish ? "Gestionar categorías guardadas" : "Manage saved categories",
+                            systemImage: "slider.horizontal.3"
+                        )
+                    }
+                } header: {
+                    Text(settings.language == .spanish ? "Categorías" : "Categories")
                 }
 
                 if let validationError {
@@ -125,6 +186,21 @@ struct AddRecurringPaymentView: View {
             .sheet(isPresented: $showDayPickerSheet) {
                 recurringDayPickerSheet
             }
+            .sheet(isPresented: $showManageCategories) {
+                NavigationStack {
+                    CustomCategoriesSettingsView(mode: .recurringPayment)
+                        .environmentObject(auth)
+                        .environmentObject(settings)
+                }
+            }
+            .onAppear {
+                reloadCustomCategories()
+            }
+            .onChange(of: showManageCategories) { _, isPresented in
+                if !isPresented {
+                    reloadCustomCategories()
+                }
+            }
         }
         .accessibilityIdentifier("recurring.sheet")
     }
@@ -160,6 +236,26 @@ struct AddRecurringPaymentView: View {
         .presentationDragIndicator(.visible)
     }
 
+    private func reloadCustomCategories() {
+        customCategories = TransactionCustomizationStore.shared.loadRecurringPaymentCustomCategories(user: auth.currentUser)
+    }
+
+    private func saveReusableCustomCategory() {
+        let trimmed = FormValidator.trim(customCategoryName)
+        guard !trimmed.isEmpty else { return }
+
+        var items = TransactionCustomizationStore.shared.loadRecurringPaymentCustomCategories(user: auth.currentUser)
+
+        if let index = items.firstIndex(where: { $0.name.compare(trimmed, options: .caseInsensitive) == .orderedSame }) {
+            items[index] = CustomRecurringPaymentCategory(id: items[index].id, name: trimmed, style: category)
+        } else {
+            items.append(CustomRecurringPaymentCategory(name: trimmed, style: category))
+        }
+
+        TransactionCustomizationStore.shared.saveRecurringPaymentCustomCategories(items, user: auth.currentUser)
+        reloadCustomCategories()
+    }
+
     private func saveRecurringPayment() {
         guard validationError == nil else {
             showValidationAlert = true
@@ -177,12 +273,13 @@ struct AddRecurringPaymentView: View {
             amount: parsedAmount,
             dueDay: dueDay,
             category: category,
+            customCategoryName: FormValidator.trim(customCategoryName).isEmpty ? nil : FormValidator.trim(customCategoryName),
             isActive: isActive,
             lastPaidMonth: existingPayment?.lastPaidMonth,
             lastPaidYear: existingPayment?.lastPaidYear,
             lastPaidExpenseId: existingPayment?.lastPaidExpenseId
         )
-        
+
         onSave(payment)
         dismiss()
     }

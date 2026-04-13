@@ -17,6 +17,7 @@ struct AppBackupSnapshot: Codable {
     let expenseCustomCategories: [CustomExpenseCategory]
     let incomeCustomCategories: [CustomIncomeCategory]
     let moneyAccountCustomCategories: [CustomMoneyAccountCategory]
+    let recurringPaymentCustomCategories: [CustomRecurringPaymentCategory]
     let profileImageData: Data?
     let profileDisplayName: String?
 
@@ -37,6 +38,7 @@ struct AppBackupSnapshot: Codable {
         case expenseCustomCategories
         case incomeCustomCategories
         case moneyAccountCustomCategories
+        case recurringPaymentCustomCategories
     }
 
     init(
@@ -54,6 +56,7 @@ struct AppBackupSnapshot: Codable {
         expenseCustomCategories: [CustomExpenseCategory] = [],
         incomeCustomCategories: [CustomIncomeCategory] = [],
         moneyAccountCustomCategories: [CustomMoneyAccountCategory] = [],
+        recurringPaymentCustomCategories: [CustomRecurringPaymentCategory] = [],
         profileImageData: Data?,
         profileDisplayName: String?
     ) {
@@ -71,6 +74,7 @@ struct AppBackupSnapshot: Codable {
         self.expenseCustomCategories = expenseCustomCategories
         self.incomeCustomCategories = incomeCustomCategories
         self.moneyAccountCustomCategories = moneyAccountCustomCategories
+        self.recurringPaymentCustomCategories = recurringPaymentCustomCategories
         self.profileImageData = profileImageData
         self.profileDisplayName = profileDisplayName
     }
@@ -93,6 +97,7 @@ struct AppBackupSnapshot: Codable {
         moneyAccountCustomCategories = try container.decodeIfPresent([CustomMoneyAccountCategory].self, forKey: .moneyAccountCustomCategories) ?? []
         profileImageData = try container.decodeIfPresent(Data.self, forKey: .profileImageData)
         profileDisplayName = try container.decodeIfPresent(String.self, forKey: .profileDisplayName)
+        recurringPaymentCustomCategories = try container.decodeIfPresent([CustomRecurringPaymentCategory].self, forKey: .recurringPaymentCustomCategories) ?? []
     }
 }
 
@@ -174,6 +179,7 @@ final class AppBackupService {
             expenseCustomCategories: TransactionCustomizationStore.shared.loadExpenseCustomCategories(user: cleanUser),
             incomeCustomCategories: TransactionCustomizationStore.shared.loadIncomeCustomCategories(user: cleanUser),
             moneyAccountCustomCategories: TransactionCustomizationStore.shared.loadMoneyAccountCustomCategories(user: cleanUser),
+            recurringPaymentCustomCategories: TransactionCustomizationStore.shared.loadRecurringPaymentCustomCategories(user: cleanUser),
             profileImageData: DataManager.shared.loadProfileImageData(user: cleanUser),
             profileDisplayName: DataManager.shared.loadProfileDisplayName(user: cleanUser)
         )
@@ -284,6 +290,7 @@ final class AppBackupService {
         TransactionCustomizationStore.shared.saveExpenseCustomCategories(remapped.expenseCustomCategories, user: cleanUser)
         TransactionCustomizationStore.shared.saveIncomeCustomCategories(remapped.incomeCustomCategories, user: cleanUser)
         TransactionCustomizationStore.shared.saveMoneyAccountCustomCategories(remapped.moneyAccountCustomCategories, user: cleanUser)
+        TransactionCustomizationStore.shared.saveRecurringPaymentCustomCategories(remapped.recurringPaymentCustomCategories, user: cleanUser)
         DataManager.shared.saveBudgetAlertState(BudgetAlertState(), user: cleanUser)
         DataManager.shared.saveProfileImageData(remapped.profileImageData, user: cleanUser)
         DataManager.shared.saveProfileDisplayName(remapped.profileDisplayName, user: cleanUser)
@@ -341,9 +348,25 @@ final class AppBackupService {
             expenseCustomCategories: expenseCustomCategories,
             incomeCustomCategories: incomeCustomCategories,
             moneyAccountCustomCategories: moneyAccountCustomCategories,
+            recurringPaymentCustomCategories: snapshot.recurringPaymentCustomCategories,
             profileImageData: profileImageData,
             profileDisplayName: profileDisplayName
         )
+    }
+    
+    private func sanitizedRecurringPaymentCustomCategories(_ items: [CustomRecurringPaymentCategory]) -> [CustomRecurringPaymentCategory] {
+        var seen: Set<String> = []
+
+        return items.compactMap { item in
+            let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { return nil }
+
+            seen.insert(key)
+            return CustomRecurringPaymentCategory(id: item.id, name: trimmed, style: item.style)
+        }
     }
 
     private func validateExpenses(_ expenses: [Expense]) throws {

@@ -24,7 +24,7 @@ struct DayPaymentsPopup: View {
                                 Text(payment.title)
                                     .font(.headline)
 
-                                Text(payment.category.displayName(language: settings.language))
+                                Text(payment.categoryDisplayName(language: settings.language))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }

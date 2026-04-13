@@ -2,16 +2,50 @@ import Foundation
 
 struct RecurringPayment: Identifiable, Codable {
 
-    var id = UUID()
+    var id: UUID
     var title: String
     var amount: Double
     var dueDay: Int
     var category: RecurringPaymentCategory
+    var customCategoryName: String?
     var isActive: Bool
 
     var lastPaidMonth: Int?
     var lastPaidYear: Int?
     var lastPaidExpenseId: UUID?
+
+    init(
+        id: UUID = UUID(),
+        title: String,
+        amount: Double,
+        dueDay: Int,
+        category: RecurringPaymentCategory,
+        customCategoryName: String? = nil,
+        isActive: Bool,
+        lastPaidMonth: Int? = nil,
+        lastPaidYear: Int? = nil,
+        lastPaidExpenseId: UUID? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.amount = amount
+        self.dueDay = dueDay
+        self.category = category
+        self.customCategoryName = customCategoryName
+        self.isActive = isActive
+        self.lastPaidMonth = lastPaidMonth
+        self.lastPaidYear = lastPaidYear
+        self.lastPaidExpenseId = lastPaidExpenseId
+    }
+
+    var normalizedCustomCategoryName: String? {
+        let trimmed = customCategoryName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
+    func categoryDisplayName(language: AppLanguage) -> String {
+        normalizedCustomCategoryName ?? category.displayName(language: language)
+    }
 
     var isPaidForCurrentMonth: Bool {
         guard let month = lastPaidMonth,

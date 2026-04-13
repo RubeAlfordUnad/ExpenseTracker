@@ -1413,6 +1413,7 @@ struct DashboardView: View {
             amount: payment.amount,
             date: Date(),
             category: expenseCategory(for: payment.category),
+            customCategoryName: payment.normalizedCustomCategoryName,
             moneyAccountId: moneyAccountId,
             comment: settings.language == .spanish
                 ? "Generado desde pagos fijos"

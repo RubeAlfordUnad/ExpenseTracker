@@ -102,6 +102,7 @@ final class StoredRecurringPayment {
     var amount: Double
     var dueDay: Int
     var categoryRawValue: String
+    var customCategoryName: String?
     var isActive: Bool
     var lastPaidMonth: Int?
     var lastPaidYear: Int?
@@ -114,6 +115,7 @@ final class StoredRecurringPayment {
         self.amount = payment.amount
         self.dueDay = payment.dueDay
         self.categoryRawValue = payment.category.rawValue
+        self.customCategoryName = payment.customCategoryName
         self.isActive = payment.isActive
         self.lastPaidMonth = payment.lastPaidMonth
         self.lastPaidYear = payment.lastPaidYear
@@ -127,6 +129,7 @@ final class StoredRecurringPayment {
             amount: amount,
             dueDay: dueDay,
             category: RecurringPaymentCategory(rawValue: categoryRawValue) ?? .other,
+            customCategoryName: customCategoryName,
             isActive: isActive,
             lastPaidMonth: lastPaidMonth,
             lastPaidYear: lastPaidYear,

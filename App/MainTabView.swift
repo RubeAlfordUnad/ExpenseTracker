@@ -23,6 +23,7 @@ struct MainTabView: View {
 
     @State private var showBudgetEditAlert = false
     @State private var showMoneyAccountsSheet = false
+    @State private var moneyAccountsSheetStartsInCreateMode = false
     @State private var budgetInput = ""
 
     @State private var showBudgetValidationAlert = false
@@ -140,6 +141,20 @@ struct MainTabView: View {
                                     }
                                 }
                                 .accessibilityIdentifier("main.add.transfer")
+
+                                Button {
+                                    moneyAccountsSheetStartsInCreateMode = true
+                                    showMoneyAccountsSheet = true
+                                } label: {
+                                    Label {
+                                        Text(addMoneyAccountActionTitle)
+                                    } icon: {
+                                        Image(systemName: "building.columns.circle.fill")
+                                            .symbolRenderingMode(.palette)
+                                            .foregroundStyle(.white, .mint)
+                                    }
+                                }
+                                .accessibilityIdentifier("main.add.moneyAccount")
                             } label: {
                                 Image(systemName: "plus.circle")
                             }
@@ -203,12 +218,15 @@ struct MainTabView: View {
                         .presentationDetents([.height(240)])
                         .presentationDragIndicator(.visible)
                     }
-                    .sheet(isPresented: $showMoneyAccountsSheet) {
+                    .sheet(isPresented: $showMoneyAccountsSheet, onDismiss: {
+                        moneyAccountsSheetStartsInCreateMode = false
+                    }) {
                         MoneyAccountsSheetView(
                             accounts: moneyAccounts,
                             expenses: expenses,
                             incomes: incomes,
-                            transfers: accountTransfers
+                            transfers: accountTransfers,
+                            startInCreateMode: moneyAccountsSheetStartsInCreateMode
                         ) { updatedAccounts in
                             moneyAccounts = updatedAccounts
                             persistMoneyAccounts()
@@ -444,9 +462,13 @@ struct MainTabView: View {
     }
 
     private var addTransferActionTitle: String {
-        settings.language == .spanish ? "Agregar transferencia" : "Add transfer"
+        settings.language == .spanish ? "Hacer transferencia" : "Make transfer"
     }
-
+    
+    private var addMoneyAccountActionTitle: String {
+        settings.language == .spanish ? "Crear cuenta" : "Create account"
+    }
+    
     private func persistExpenses() {
         DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
     }
@@ -470,6 +492,7 @@ struct MainTabView: View {
             amount: payment.amount,
             date: Date(),
             category: payment.category.expenseCategory(),
+            customCategoryName: payment.normalizedCustomCategoryName,
             moneyAccountId: moneyAccountId,
             comment: settings.language == .spanish
                 ? "Generado desde pagos fijos"
@@ -519,6 +542,7 @@ struct MainTabView: View {
     }
 
     private func openMoneyAccountsEditor() {
+        moneyAccountsSheetStartsInCreateMode = false
         showMoneyAccountsSheet = true
     }
 

@@ -76,6 +76,7 @@ struct AppBackupReferenceSanitizer {
             expenseCustomCategories: snapshot.expenseCustomCategories,
             incomeCustomCategories: snapshot.incomeCustomCategories,
             moneyAccountCustomCategories: snapshot.moneyAccountCustomCategories,
+            recurringPaymentCustomCategories: snapshot.recurringPaymentCustomCategories,
             profileImageData: snapshot.profileImageData,
             profileDisplayName: snapshot.profileDisplayName
         )

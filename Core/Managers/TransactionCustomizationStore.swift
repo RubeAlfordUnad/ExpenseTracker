@@ -79,6 +79,30 @@ final class TransactionCustomizationStore {
 
         encode(normalized, forKey: moneyAccountCustomCategoriesKey(for: cleanUser))
     }
+    
+    // MARK: - Recurring Payment Categories
+
+    func loadRecurringPaymentCustomCategories(user: String) -> [CustomRecurringPaymentCategory] {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return [] }
+
+        let items = decode([CustomRecurringPaymentCategory].self, forKey: recurringPaymentCustomCategoriesKey(for: cleanUser)) ?? []
+        return normalizedRecurringPaymentCustomCategories(items)
+    }
+
+    func saveRecurringPaymentCustomCategories(_ items: [CustomRecurringPaymentCategory], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        let normalized = normalizedRecurringPaymentCustomCategories(items)
+
+        if normalized.isEmpty {
+            defaults.removeObject(forKey: recurringPaymentCustomCategoriesKey(for: cleanUser))
+            return
+        }
+
+        encode(normalized, forKey: recurringPaymentCustomCategoriesKey(for: cleanUser))
+    }
 
     // MARK: - Expense Metadata
 
@@ -197,6 +221,7 @@ final class TransactionCustomizationStore {
                 expenseCustomCategoriesKey(for: cleanUser),
                 incomeCustomCategoriesKey(for: cleanUser),
                 moneyAccountCustomCategoriesKey(for: cleanUser),
+                recurringPaymentCustomCategoriesKey(for: cleanUser),
                 expenseMetadataKey(for: cleanUser),
                 incomeMetadataKey(for: cleanUser)
         ]
@@ -241,6 +266,10 @@ final class TransactionCustomizationStore {
     private func expenseMetadataKey(for user: String) -> String {
         "expenseMetadata_\(user)"
     }
+    
+    private func recurringPaymentCustomCategoriesKey(for user: String) -> String {
+        "recurringPaymentCustomCategories_\(user)"
+    }
 
     private func incomeMetadataKey(for user: String) -> String {
         "incomeMetadata_\(user)"
@@ -274,6 +303,22 @@ final class TransactionCustomizationStore {
 
             seen.insert(key)
             return CustomMoneyAccountCategory(id: item.id, name: trimmed, style: item.style)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+    
+    private func normalizedRecurringPaymentCustomCategories(_ items: [CustomRecurringPaymentCategory]) -> [CustomRecurringPaymentCategory] {
+        var seen: Set<String> = []
+
+        return items.compactMap { item in
+            let trimmed = item.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            let key = trimmed.lowercased()
+            guard !seen.contains(key) else { return nil }
+
+            seen.insert(key)
+            return CustomRecurringPaymentCategory(id: item.id, name: trimmed, style: item.style)
         }
         .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }

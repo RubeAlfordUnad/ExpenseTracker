@@ -10,15 +10,18 @@ struct CustomCategoriesSettingsView: View {
     @State private var expenseCategories: [CustomExpenseCategory] = []
     @State private var incomeCategories: [CustomIncomeCategory] = []
     @State private var moneyAccountCategories: [CustomMoneyAccountCategory] = []
+    @State private var recurringPaymentCategories: [CustomRecurringPaymentCategory] = []
 
     @State private var name = ""
     @State private var selectedExpenseStyle: Category = .other
     @State private var selectedIncomeStyle: IncomeCategory = .other
     @State private var selectedMoneyAccountStyle: MoneyAccountKind = .other
+    @State private var selectedRecurringPaymentStyle: RecurringPaymentCategory = .other
 
     @State private var editingExpenseID: UUID?
     @State private var editingIncomeID: UUID?
     @State private var editingMoneyAccountID: UUID?
+    @State private var editingRecurringPaymentID: UUID?
 
     var body: some View {
         Form {
@@ -29,6 +32,14 @@ struct CustomCategoriesSettingsView: View {
                 case .expense:
                     Picker(baseStyleTitle, selection: $selectedExpenseStyle) {
                         ForEach(Category.allCases, id: \.self) { item in
+                            Text(item.displayName(language: settings.language))
+                                .tag(item)
+                        }
+                    }
+                    
+                case .recurringPayment:
+                    Picker(baseStyleTitle, selection: $selectedRecurringPaymentStyle) {
+                        ForEach(RecurringPaymentCategory.allCases, id: \.self) { item in
                             Text(item.displayName(language: settings.language))
                                 .tag(item)
                         }
@@ -95,6 +106,44 @@ struct CustomCategoriesSettingsView: View {
                     }
                 } header: {
                     Text(settings.language == .spanish ? "Categorías personalizadas de gastos" : "Custom expense categories")
+                }
+                
+            case .recurringPayment:
+                Section {
+                    if recurringPaymentCategories.isEmpty {
+                        emptyStateRow
+                    } else {
+                        ForEach(recurringPaymentCategories) { item in
+                            Button {
+                                editingExpenseID = nil
+                                editingIncomeID = nil
+                                editingMoneyAccountID = nil
+                                editingRecurringPaymentID = item.id
+                                name = item.name
+                                selectedRecurringPaymentStyle = item.style
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: item.style.icon)
+                                        .foregroundColor(item.style.color)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.name)
+                                            .foregroundColor(.primary)
+
+                                        Text(item.style.displayName(language: settings.language))
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .onDelete(perform: deleteRecurringPaymentCategories)
+                    }
+                } header: {
+                    Text(settings.language == .spanish ? "Categorías personalizadas de pagos fijos" : "Custom recurring payment categories")
                 }
 
             case .income:
@@ -187,6 +236,8 @@ struct CustomCategoriesSettingsView: View {
             return settings.language == .spanish ? "Categorías de ingresos" : "Income categories"
         case .moneyAccount:
             return settings.language == .spanish ? "Categorías de cuentas" : "Money account categories"
+        case .recurringPayment:
+            return settings.language == .spanish ? "Categorías de pagos fijos" : "Recurring payment categories"
         }
     }
 
@@ -207,6 +258,8 @@ struct CustomCategoriesSettingsView: View {
                 return editingIncomeID != nil
             case .moneyAccount:
                 return editingMoneyAccountID != nil
+            case .recurringPayment:
+                return editingRecurringPaymentID != nil
             }
         }()
 
@@ -260,6 +313,18 @@ struct CustomCategoriesSettingsView: View {
             }
 
             TransactionCustomizationStore.shared.saveIncomeCustomCategories(items, user: auth.currentUser)
+            
+        case .recurringPayment:
+            var items = recurringPaymentCategories
+
+            if let editingRecurringPaymentID,
+               let index = items.firstIndex(where: { $0.id == editingRecurringPaymentID }) {
+                items[index] = CustomRecurringPaymentCategory(id: editingRecurringPaymentID, name: trimmed, style: selectedRecurringPaymentStyle)
+            } else {
+                items.append(CustomRecurringPaymentCategory(name: trimmed, style: selectedRecurringPaymentStyle))
+            }
+
+            TransactionCustomizationStore.shared.saveRecurringPaymentCustomCategories(items, user: auth.currentUser)
 
         case .moneyAccount:
             var items = moneyAccountCategories
@@ -295,6 +360,12 @@ struct CustomCategoriesSettingsView: View {
         TransactionCustomizationStore.shared.saveMoneyAccountCustomCategories(moneyAccountCategories, user: auth.currentUser)
         reloadData()
     }
+    
+    private func deleteRecurringPaymentCategories(at offsets: IndexSet) {
+        recurringPaymentCategories.remove(atOffsets: offsets)
+        TransactionCustomizationStore.shared.saveRecurringPaymentCustomCategories(recurringPaymentCategories, user: auth.currentUser)
+        reloadData()
+    }
 
     private func resetEditor() {
         name = ""
@@ -304,5 +375,7 @@ struct CustomCategoriesSettingsView: View {
         selectedExpenseStyle = .other
         selectedIncomeStyle = .other
         selectedMoneyAccountStyle = .other
+        editingRecurringPaymentID = nil
+        selectedRecurringPaymentStyle = .other
     }
 }
