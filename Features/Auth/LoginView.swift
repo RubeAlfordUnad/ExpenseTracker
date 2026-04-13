@@ -218,27 +218,11 @@ struct LoginView: View {
                 )
                 .padding(.horizontal, 24)
 
-                Spacer()
+                footerSignature
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
 
-                VStack(spacing: 4) {
-                    Divider()
-                        .background(
-                            colorScheme == .dark
-                            ? Color.white.opacity(0.15)
-                            : Color.black.opacity(0.15)
-                        )
-                        .padding(.horizontal, 60)
-
-                    Text("Ruben Alford · 2026")
-                        .font(.caption2)
-                        .foregroundColor(
-                            colorScheme == .dark
-                            ? .white.opacity(0.35)
-                            : .black.opacity(0.45)
-                        )
-
-                }
-                .padding(.bottom, 22)
+                Spacer(minLength: 8)
             }
         }
         .contentShape(Rectangle())
@@ -314,6 +298,29 @@ struct LoginView: View {
         .animation(.spring(response: 0.7, dampingFraction: 0.8), value: logoVisible)
     }
 
+    
+    private var footerSignature: some View {
+        VStack(spacing: 8) {
+            Capsule()
+                .fill(
+                    colorScheme == .dark
+                    ? Color.white.opacity(0.10)
+                    : Color.black.opacity(0.10)
+                )
+                .frame(width: 120, height: 1)
+
+            Text("Ruben Alford · 2026")
+                .font(.caption2.weight(.medium))
+                .foregroundColor(
+                    colorScheme == .dark
+                    ? .white.opacity(0.34)
+                    : .black.opacity(0.42)
+                )
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color.clear)
+    }
+    
     private func handleAction() {
         guard !username.isEmpty, !password.isEmpty else {
             errorMsg = settings.t("login.error.complete")
