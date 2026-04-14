@@ -1,25 +1,26 @@
 import SwiftUI
 
 struct MoneyAccountsSheetView: View {
-
+    
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var auth: AuthManager
-
+    
     @State private var draftAccounts: [MoneyAccount]
+    private let originalAccounts: [MoneyAccount]
     @State private var activeEditor: MoneyAccountEditorRoute?
     @State private var showDeletionBlockedAlert = false
     @State private var deletionBlockedTitle = ""
     @State private var deletionBlockedMessage = ""
-
+    
     let expenses: [Expense]
     let incomes: [Income]
     let transfers: [AccountTransfer]
     let startInCreateMode: Bool
     let onSave: ([MoneyAccount]) -> Void
-
+    
     private let deletionGuard = MoneyAccountDeletionGuard()
-
+    
     init(
         accounts: [MoneyAccount],
         expenses: [Expense],
@@ -31,13 +32,14 @@ struct MoneyAccountsSheetView: View {
         _draftAccounts = State(initialValue: accounts.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         })
+        self.originalAccounts = accounts
         self.expenses = expenses
         self.incomes = incomes
         self.transfers = transfers
         self.startInCreateMode = startInCreateMode
         self.onSave = onSave
     }
-
+    
     var body: some View {
         NavigationStack {
             List {
@@ -51,7 +53,7 @@ struct MoneyAccountsSheetView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 }
-
+                
                 Section {
                     Button {
                         activeEditor = .create
@@ -64,13 +66,13 @@ struct MoneyAccountsSheetView: View {
                     }
                     .accessibilityIdentifier("moneyAccounts.add")
                 }
-
+                
                 if draftAccounts.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(settings.language == .spanish ? "Aún no tienes cuentas" : "You do not have accounts yet")
                                 .font(.subheadline.bold())
-
+                            
                             Text(
                                 settings.language == .spanish
                                 ? "Agrega una cuenta para efectivo, ahorros o cualquier otro fondo manual."
@@ -91,29 +93,29 @@ struct MoneyAccountsSheetView: View {
                                     Image(systemName: account.kind.icon)
                                         .foregroundColor(account.kind.color)
                                         .frame(width: 22)
-
+                                    
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(account.name)
                                             .foregroundColor(.primary)
                                             .frame(maxWidth: .infinity, alignment: .leading)
-
+                                        
                                         Text(account.categoryDisplayName(language: settings.language))
                                             .font(.caption)
                                             .foregroundColor(.secondary)
-
+                                        
                                         if account.hasCustomCategory {
                                             Text(account.kind.displayName(language: settings.language))
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                         }
-
+                                        
                                         if !account.includeInAvailableTotal {
                                             Text(settings.language == .spanish ? "Excluida del total disponible" : "Excluded from available total")
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                         }
                                     }
-
+                                    
                                     Text(settings.secureCurrency(account.balance))
                                         .font(.subheadline.bold())
                                         .foregroundColor(.primary)
@@ -132,7 +134,7 @@ struct MoneyAccountsSheetView: View {
                             }
                         }
                     }
-
+                    
                     Section {
                         HStack {
                             Text(settings.language == .spanish ? "Fondos disponibles" : "Available funds")
@@ -140,7 +142,7 @@ struct MoneyAccountsSheetView: View {
                             Text(settings.secureCurrency(availableFunds))
                                 .font(.headline)
                         }
-
+                        
                         if excludedCount > 0 {
                             HStack {
                                 Text(settings.language == .spanish ? "Cuentas excluidas" : "Excluded accounts")
@@ -161,7 +163,7 @@ struct MoneyAccountsSheetView: View {
                         dismiss()
                     }
                 }
-
+                
                 ToolbarItem(placement: .confirmationAction) {
                     Button(settings.t("common.save")) {
                         saveAndDismiss()
@@ -186,27 +188,27 @@ struct MoneyAccountsSheetView: View {
             }
         }
     }
-
+    
     private var availableFunds: Double {
         draftAccounts
             .filter(\.includeInAvailableTotal)
             .reduce(0) { $0 + $1.balance }
     }
-
+    
     private var excludedCount: Int {
         draftAccounts.filter { !$0.includeInAvailableTotal }.count
     }
-
+    
     private func upsert(_ account: MoneyAccount) {
         if let index = draftAccounts.firstIndex(where: { $0.id == account.id }) {
             draftAccounts[index] = account
         } else {
             draftAccounts.append(account)
         }
-
+        
         draftAccounts.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
-
+    
     private func deleteAccount(_ account: MoneyAccount) {
         let impact = deletionGuard.impact(
             for: account.id,
@@ -214,12 +216,12 @@ struct MoneyAccountsSheetView: View {
             incomes: incomes,
             transfers: transfers
         )
-
+        
         guard !impact.hasLinkedRecords else {
             presentDeletionBlockedAlert(for: account, impact: impact)
             return
         }
-
+        
         draftAccounts.removeAll { $0.id == account.id }
     }
     
@@ -227,7 +229,7 @@ struct MoneyAccountsSheetView: View {
         deletionBlockedTitle = settings.language == .spanish
         ? "No puedes eliminar esta cuenta"
         : "You cannot delete this account"
-
+        
         let components = [
             localizedCount(
                 impact.expenseCount,
@@ -251,17 +253,17 @@ struct MoneyAccountsSheetView: View {
                 pluralEnglish: "transfers"
             )
         ]
-        .compactMap { $0 }
-
+            .compactMap { $0 }
+        
         let joined = components.joined(separator: settings.language == .spanish ? ", " : ", ")
-
+        
         deletionBlockedMessage = settings.language == .spanish
         ? "La cuenta \"\(account.name)\" está siendo usada en \(joined). Reasigna o elimina esos movimientos primero."
         : "The account \"\(account.name)\" is currently used in \(joined). Reassign or delete those records first."
-
+        
         showDeletionBlockedAlert = true
     }
-
+    
     private func localizedCount(
         _ count: Int,
         singularSpanish: String,
@@ -270,15 +272,36 @@ struct MoneyAccountsSheetView: View {
         pluralEnglish: String
     ) -> String? {
         guard count > 0 else { return nil }
-
+        
         if settings.language == .spanish {
             return "\(count) \(count == 1 ? singularSpanish : pluralSpanish)"
         } else {
             return "\(count) \(count == 1 ? singularEnglish : pluralEnglish)"
         }
     }
-
+    
     private func saveAndDismiss() {
+        let originalById = Dictionary(uniqueKeysWithValues: originalAccounts.map { ($0.id, $0) })
+        let draftById = Dictionary(uniqueKeysWithValues: draftAccounts.map { ($0.id, $0) })
+        
+        for account in draftAccounts {
+            if let original = originalById[account.id] {
+                if original != account {
+                    AuditLogStore.shared.logMoneyAccountUpdated(
+                        from: original,
+                        to: account,
+                        user: auth.currentUser
+                    )
+                }
+            } else {
+                AuditLogStore.shared.logMoneyAccountCreated(account, user: auth.currentUser)
+            }
+        }
+        
+        for original in originalAccounts where draftById[original.id] == nil {
+            AuditLogStore.shared.logMoneyAccountDeleted(original, user: auth.currentUser)
+        }
+        
         onSave(draftAccounts)
         dismiss()
     }

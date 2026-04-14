@@ -1391,6 +1391,12 @@ struct ExpenseHistoryView: View {
         var debts = DataManager.shared.loadDebts(user: auth.currentUser)
         expenseFundingSync.applyExpenseUpdate(from: previousExpense, to: updatedExpense, accounts: &moneyAccounts, debts: &debts)
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
+        
+        AuditLogStore.shared.logExpenseUpdated(
+            from: previousExpense,
+            to: updatedExpense,
+            user: auth.currentUser
+        )
 
         onPersistExpenses()
         onPersistMoneyAccounts()
@@ -1408,6 +1414,12 @@ struct ExpenseHistoryView: View {
         incomes.sort { $0.date > $1.date }
 
         moneyAccountSync.applyIncomeUpdate(from: previousIncome, to: updatedIncome, accounts: &moneyAccounts)
+        
+        AuditLogStore.shared.logIncomeUpdated(
+            from: previousIncome,
+            to: updatedIncome,
+            user: auth.currentUser
+        )
 
         onPersistIncomes()
         onPersistMoneyAccounts()
@@ -1431,6 +1443,8 @@ struct ExpenseHistoryView: View {
         if clearedRecurringPayments > 0 {
             DataManager.shared.saveRecurringPayments(recurringPayments, user: auth.currentUser)
         }
+        
+        AuditLogStore.shared.logExpenseDeleted(expense, user: auth.currentUser)
 
         onPersistExpenses()
         onPersistMoneyAccounts()
@@ -1441,6 +1455,8 @@ struct ExpenseHistoryView: View {
     private func deleteIncome(_ income: Income) {
         moneyAccountSync.applyIncomeDeletion(income, to: &moneyAccounts)
         incomes.removeAll { $0.id == income.id }
+        
+        AuditLogStore.shared.logIncomeDeleted(income, user: auth.currentUser)
 
         onPersistIncomes()
         onPersistMoneyAccounts()

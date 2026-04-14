@@ -3,6 +3,7 @@ import SwiftUI
 struct TransfersView: View {
 
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject var auth: AuthManager
 
     @Binding var transfers: [AccountTransfer]
     @Binding var moneyAccounts: [MoneyAccount]
@@ -89,6 +90,16 @@ struct TransfersView: View {
                     transfers.sort { $0.date > $1.date }
 
                     sync.applyNewTransfer(newTransfer, accounts: &moneyAccounts)
+
+                    let fromName = moneyAccounts.first(where: { $0.id == newTransfer.fromAccountId })?.name ?? "Unknown"
+                    let toName = moneyAccounts.first(where: { $0.id == newTransfer.toAccountId })?.name ?? "Unknown"
+
+                    AuditLogStore.shared.logTransferCreated(
+                        newTransfer,
+                        fromName: fromName,
+                        toName: toName,
+                        user: auth.currentUser
+                    )
 
                     onPersistTransfers()
                     onPersistMoneyAccounts()
@@ -367,6 +378,21 @@ struct TransfersView: View {
         transfers.sort { $0.date > $1.date }
 
         sync.applyTransferUpdate(from: previousTransfer, to: updatedTransfer, accounts: &moneyAccounts)
+        
+        let oldFromName = accountName(for: previousTransfer.fromAccountId)
+        let oldToName = accountName(for: previousTransfer.toAccountId)
+        let newFromName = accountName(for: updatedTransfer.fromAccountId)
+        let newToName = accountName(for: updatedTransfer.toAccountId)
+
+        AuditLogStore.shared.logTransferUpdated(
+            previousTransfer,
+            new: updatedTransfer,
+            fromOldName: oldFromName,
+            toOldName: oldToName,
+            fromNewName: newFromName,
+            toNewName: newToName,
+            user: auth.currentUser
+        )
 
         onPersistTransfers()
         onPersistMoneyAccounts()
@@ -375,6 +401,16 @@ struct TransfersView: View {
     private func deleteTransfer(_ transfer: AccountTransfer) {
         sync.applyTransferDeletion(transfer, accounts: &moneyAccounts)
         transfers.removeAll { $0.id == transfer.id }
+        
+        let fromName = accountName(for: transfer.fromAccountId)
+        let toName = accountName(for: transfer.toAccountId)
+
+        AuditLogStore.shared.logTransferDeleted(
+            transfer,
+            fromName: fromName,
+            toName: toName,
+            user: auth.currentUser
+        )
 
         onPersistTransfers()
         onPersistMoneyAccounts()

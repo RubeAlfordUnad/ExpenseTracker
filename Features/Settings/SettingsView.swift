@@ -119,7 +119,25 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("settings.backupRestore")
+                    
+                    SettingsDivider()
 
+                    NavigationLink {
+                        ActivityLogView()
+                            .environmentObject(auth)
+                            .environmentObject(settings)
+                    } label: {
+                        SettingsNavigationTile(
+                            icon: "list.clipboard",
+                            title: settings.language == .spanish ? "Logs de actividad" : "Activity log",
+                            subtitle: settings.language == .spanish
+                            ? "Revisa cambios en movimientos y valores"
+                            : "Review changes to records and values"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("settings.activityLog")
+                    
                     SettingsDivider()
 
                     NavigationLink {

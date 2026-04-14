@@ -619,6 +619,7 @@ final class DataManager {
         try? fileManager.removeItem(at: profileImageFileURL(for: cleanUser))
         
         TransactionCustomizationStore.shared.deleteAllData(for: cleanUser)
+        AuditLogStore.shared.clear(user: cleanUser)
 
         let defaults = UserDefaults.standard
         let keys = [

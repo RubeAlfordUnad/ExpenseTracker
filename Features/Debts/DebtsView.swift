@@ -443,9 +443,16 @@ struct DebtsView: View {
     
     private func upsertDebt(_ savedDebt: Debt) {
         if let index = debts.firstIndex(where: { $0.id == savedDebt.id }) {
+            let previousDebt = debts[index]
             debts[index] = savedDebt
+            AuditLogStore.shared.logDebtUpdated(
+                from: previousDebt,
+                to: savedDebt,
+                user: auth.currentUser
+            )
         } else {
             debts.append(savedDebt)
+            AuditLogStore.shared.logDebtCreated(savedDebt, user: auth.currentUser)
         }
     }
     
@@ -462,8 +469,11 @@ struct DebtsView: View {
             return
         }
         
+        AuditLogStore.shared.logDebtDeleted(debt, user: auth.currentUser)
         debts.removeAll { $0.id == debt.id }
+        
     }
+    
     
     private func presentDeletionBlockedAlert(for debt: Debt, impact: DebtDeletionImpact) {
         deletionBlockedTitle = settings.language == .spanish

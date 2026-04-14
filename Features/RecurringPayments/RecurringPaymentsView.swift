@@ -489,9 +489,20 @@ struct RecurringPaymentsView: View {
 
     private func upsertPayment(_ savedPayment: RecurringPayment) {
         if let index = payments.firstIndex(where: { $0.id == savedPayment.id }) {
+            let previousPayment = payments[index]
             payments[index] = savedPayment
+            payments.sort(by: sortPayments)
+
+            AuditLogStore.shared.logRecurringPaymentUpdated(
+                from: previousPayment,
+                to: savedPayment,
+                user: auth.currentUser
+            )
         } else {
             payments.append(savedPayment)
+            payments.sort(by: sortPayments)
+
+            AuditLogStore.shared.logRecurringPaymentCreated(savedPayment, user: auth.currentUser)
         }
 
         persist()
@@ -527,6 +538,10 @@ struct RecurringPaymentsView: View {
         }
 
         let savedPayment = payments[index]
+        
+        let sourceAccountName = moneyAccounts.first(where: { $0.id == moneyAccountId })?.name ?? "Unknown"
+        AuditLogStore.shared.logRecurringPaymentMarkedPaid(savedPayment, fromAccountName: sourceAccountName, user: auth.currentUser)
+        
         persist()
         onRegisterPaidRecurringExpense(savedPayment, moneyAccountId, generatedExpenseId)
     }
@@ -541,6 +556,9 @@ struct RecurringPaymentsView: View {
             payments[index].lastPaidYear = nil
             payments[index].lastPaidExpenseId = nil
         }
+        
+        let previousPayment = payments[index]
+        AuditLogStore.shared.logRecurringPaymentMarkedUnpaid(previousPayment, user: auth.currentUser)
 
         persist()
 
@@ -566,6 +584,7 @@ struct RecurringPaymentsView: View {
             payments.removeAll { $0.id == payment.id }
         }
 
+        AuditLogStore.shared.logRecurringPaymentDeleted(payment, user: auth.currentUser)
         persist()
     }
 

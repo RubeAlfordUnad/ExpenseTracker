@@ -172,6 +172,8 @@ struct MainTabView: View {
                             var debts = DataManager.shared.loadDebts(user: auth.currentUser)
                             expenseFundingSync.applyNewExpense(newExpense, accounts: &moneyAccounts, debts: &debts)
                             DataManager.shared.saveDebts(debts, user: auth.currentUser)
+                            
+                            AuditLogStore.shared.logExpenseCreated(newExpense, user: auth.currentUser)
 
                             persistExpenses()
                             persistMoneyAccounts()
@@ -188,6 +190,8 @@ struct MainTabView: View {
 
                             moneyAccountSync.applyNewIncome(newIncome, to: &moneyAccounts)
 
+                            AuditLogStore.shared.logIncomeCreated(newIncome, user: auth.currentUser)
+                            
                             persistIncomes()
                             persistMoneyAccounts()
                             refreshInsight()
@@ -202,6 +206,16 @@ struct MainTabView: View {
                                 accountTransfers.sort { $0.date > $1.date }
 
                                 moneyAccountTransferSync.applyNewTransfer(newTransfer, accounts: &moneyAccounts)
+
+                                let fromName = moneyAccounts.first(where: { $0.id == newTransfer.fromAccountId })?.name ?? "Unknown"
+                                let toName = moneyAccounts.first(where: { $0.id == newTransfer.toAccountId })?.name ?? "Unknown"
+
+                                AuditLogStore.shared.logTransferCreated(
+                                    newTransfer,
+                                    fromName: fromName,
+                                    toName: toName,
+                                    user: auth.currentUser
+                                )
 
                                 persistAccountTransfers()
                                 persistMoneyAccounts()
@@ -505,6 +519,12 @@ struct MainTabView: View {
         var debts = DataManager.shared.loadDebts(user: auth.currentUser)
         expenseFundingSync.applyNewExpense(generatedExpense, accounts: &moneyAccounts, debts: &debts)
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
+        
+        AuditLogStore.shared.logExpenseCreated(
+            generatedExpense,
+            user: auth.currentUser,
+            note: settings.language == .spanish ? "Generado automáticamente desde pago fijo" : "Automatically generated from recurring payment"
+        )
 
         persistExpenses()
         persistMoneyAccounts()
@@ -520,6 +540,12 @@ struct MainTabView: View {
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
         expenses.removeAll { $0.id == expenseId }
+        
+        AuditLogStore.shared.logExpenseDeleted(
+            expense,
+            user: auth.currentUser,
+            note: settings.language == .spanish ? "Eliminado al desmarcar un pago fijo" : "Deleted when unmarking a recurring payment"
+        )
 
         persistExpenses()
         persistMoneyAccounts()
@@ -620,8 +646,15 @@ struct MainTabView: View {
         }
 
         monthlyBudget = MonthlyBudget(amount: value)
+        let previousBudgetAmount = monthlyBudget.amount > 0 ? monthlyBudget.amount : nil
         DataManager.shared.saveMonthlyBudget(monthlyBudget, user: auth.currentUser)
-
+        
+        AuditLogStore.shared.logBudgetUpdated(
+            previousAmount: previousBudgetAmount,
+            newAmount: value,
+            user: auth.currentUser
+        )
+        
         showBudgetEditAlert = false
 
         refreshInsight()

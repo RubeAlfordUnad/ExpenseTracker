@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct AddPaymentView: View {
-
+    
+    @EnvironmentObject var auth: AuthManager
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: AppSettings
 
@@ -211,6 +212,19 @@ struct AddPaymentView: View {
 
         debt.remainingDebt = max(debt.remainingDebt - value, 0)
         onApplyPayment(value, selectedMoneyAccountId)
+        
+        let previousDebtAmount = debt.remainingDebt + value
+        let accountName = moneyAccounts.first(where: { $0.id == selectedMoneyAccountId })?.name ?? "Unknown"
+
+        AuditLogStore.shared.logDebtPayment(
+            cardName: debt.cardName,
+            amount: value,
+            fromAccountName: accountName,
+            remainingDebtBefore: previousDebtAmount,
+            remainingDebtAfter: debt.remainingDebt,
+            user: auth.currentUser
+        )
+        
         dismiss()
     }
 }

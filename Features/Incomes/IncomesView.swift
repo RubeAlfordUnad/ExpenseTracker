@@ -97,13 +97,12 @@ struct IncomesView: View {
                 if let incomePendingDelete {
                     removeIncome(incomePendingDelete)
                 }
-                self.incomePendingDelete = nil
             }
         } message: {
             Text(
                 settings.language == .spanish
-                ? "Se borrará \"\(incomePendingDelete?.title ?? "")\" de forma permanente."
-                : "\"\(incomePendingDelete?.title ?? "")\" will be permanently removed."
+                ? "Esta acción eliminará el ingreso seleccionado."
+                : "This action will delete the selected income."
             )
         }
     }
@@ -278,9 +277,16 @@ struct IncomesView: View {
 
     private func upsertIncome(_ income: Income) {
         if let index = incomes.firstIndex(where: { $0.id == income.id }) {
+            let previousIncome = incomes[index]
             incomes[index] = income
+            AuditLogStore.shared.logIncomeUpdated(
+                from: previousIncome,
+                to: income,
+                user: auth.currentUser
+            )
         } else {
             incomes.append(income)
+            AuditLogStore.shared.logIncomeCreated(income, user: auth.currentUser)
         }
 
         incomes.sort { $0.date > $1.date }
@@ -289,6 +295,7 @@ struct IncomesView: View {
 
     private func removeIncome(_ income: Income) {
         incomes.removeAll { $0.id == income.id }
+        AuditLogStore.shared.logIncomeDeleted(income, user: auth.currentUser)
         onPersist()
     }
 }
