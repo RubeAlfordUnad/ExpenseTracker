@@ -74,8 +74,16 @@ struct AuditLogEntry: Identifiable, Codable, Equatable {
     let action: AuditLogAction
     let title: String
     let detail: String
+
+    let originalValue: String?
+    let originalTimestamp: Date?
+
     let previousValue: String?
+    let previousTimestamp: Date?
+
     let newValue: String?
+    let newTimestamp: Date?
+
     let note: String?
 
     init(
@@ -85,8 +93,12 @@ struct AuditLogEntry: Identifiable, Codable, Equatable {
         action: AuditLogAction,
         title: String,
         detail: String,
+        originalValue: String? = nil,
+        originalTimestamp: Date? = nil,
         previousValue: String? = nil,
+        previousTimestamp: Date? = nil,
         newValue: String? = nil,
+        newTimestamp: Date? = nil,
         note: String? = nil
     ) {
         self.id = id
@@ -95,8 +107,16 @@ struct AuditLogEntry: Identifiable, Codable, Equatable {
         self.action = action
         self.title = title
         self.detail = detail
+
+        self.originalValue = originalValue
+        self.originalTimestamp = originalTimestamp
+
         self.previousValue = previousValue
+        self.previousTimestamp = previousTimestamp
+
         self.newValue = newValue
+        self.newTimestamp = newTimestamp
+
         self.note = note
     }
 }
