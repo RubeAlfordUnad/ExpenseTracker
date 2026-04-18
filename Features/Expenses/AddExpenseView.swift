@@ -65,6 +65,10 @@ struct AddExpenseView: View {
             initialFundingSource = .creditCard
         } else if validExistingAccountId != nil {
             initialFundingSource = .moneyAccount
+        } else if !moneyAccounts.isEmpty {
+            initialFundingSource = .moneyAccount
+        } else if !debts.isEmpty {
+            initialFundingSource = .creditCard
         } else {
             initialFundingSource = .none
         }
@@ -74,10 +78,11 @@ struct AddExpenseView: View {
         _category = State(initialValue: existingExpense?.category ?? .other)
         _customCategoryName = State(initialValue: existingExpense?.customCategoryName ?? "")
         _comment = State(initialValue: existingExpense?.comment ?? "")
-        _expenseDate = State(initialValue: existingExpense?.date ?? Date())
+        let initialExpenseDate = min(existingExpense?.date ?? Date(), Date())
+        _expenseDate = State(initialValue: initialExpenseDate)
         _selectedFundingSource = State(initialValue: initialFundingSource)
-        _selectedMoneyAccountId = State(initialValue: validExistingAccountId)
-        _selectedCreditCardId = State(initialValue: validExistingCreditCardId)
+        _selectedMoneyAccountId = State(initialValue: validExistingAccountId ?? moneyAccounts.first?.id)
+        _selectedCreditCardId = State(initialValue: validExistingCreditCardId ?? debts.first?.id)
     }
 
     private var validationError: FormValidationError? {
@@ -85,19 +90,27 @@ struct AddExpenseView: View {
     }
 
     private var fundingValidationMessage: String? {
+        if moneyAccounts.isEmpty && debts.isEmpty {
+            return settings.language == .spanish
+            ? "Debes crear al menos una cuenta de dinero o una tarjeta antes de registrar este gasto."
+            : "You need to create at least one money account or card before registering this expense."
+        }
+
         switch selectedFundingSource {
         case .none:
-            return nil
+            return settings.language == .spanish
+            ? "Selecciona de dónde salió este gasto."
+            : "Select where this expense came from."
         case .moneyAccount:
             guard selectedMoneyAccountId == nil else { return nil }
             return settings.language == .spanish
-            ? "Selecciona una cuenta de salida o cambia el origen a Sin origen."
-            : "Select a source account or switch the source to No source."
+            ? "Selecciona la cuenta desde donde salió este gasto."
+            : "Select the account this expense came from."
         case .creditCard:
             guard selectedCreditCardId == nil else { return nil }
             return settings.language == .spanish
-            ? "Selecciona una tarjeta o cambia el origen a Sin origen."
-            : "Select a card or switch the source to No source."
+            ? "Selecciona la tarjeta usada para este gasto."
+            : "Select the card used for this expense."
         }
     }
     
@@ -153,8 +166,19 @@ struct AddExpenseView: View {
         }
     }
 
+    private var dateValidationMessage: String? {
+        guard expenseDate <= Date() else {
+            return settings.language == .spanish
+            ? "La fecha del gasto no puede estar en el futuro."
+            : "The expense date cannot be in the future."
+        }
+
+        return nil
+    }
+
     private var activeValidationMessage: String? {
         validationError?.message(language: settings.language)
+        ?? dateValidationMessage
         ?? fundingValidationMessage
         ?? moneyAccountValidationMessage
         ?? creditLimitValidationMessage
@@ -163,6 +187,10 @@ struct AddExpenseView: View {
     private var validationAlertTitle: String {
         if let validationError {
             return validationError.title(language: settings.language)
+        }
+
+        if dateValidationMessage != nil {
+            return settings.language == .spanish ? "Fecha inválida" : "Invalid date"
         }
 
         if fundingValidationMessage != nil {
@@ -200,6 +228,7 @@ struct AddExpenseView: View {
                     DatePicker(
                         settings.language == .spanish ? "Fecha" : "Date",
                         selection: $expenseDate,
+                        in: ...Date(),
                         displayedComponents: .date
                     )
                     .accessibilityIdentifier("expense.date.field")
@@ -274,7 +303,7 @@ struct AddExpenseView: View {
                             settings.language == .spanish ? "Sale desde" : "Paid with",
                             selection: $selectedFundingSource
                         ) {
-                            Text(settings.language == .spanish ? "Sin origen" : "No source")
+                            Text(settings.language == .spanish ? "Selecciona un origen" : "Select a source")
                                 .tag(ExpenseFundingSource.none)
 
                             if !moneyAccounts.isEmpty {
@@ -374,6 +403,7 @@ struct AddExpenseView: View {
                     }
                     .disabled(
                         validationError != nil
+                        || dateValidationMessage != nil
                         || fundingValidationMessage != nil
                         || moneyAccountValidationMessage != nil
                         || creditLimitValidationMessage != nil
@@ -443,6 +473,7 @@ struct AddExpenseView: View {
 
     private func saveExpense() {
         guard validationError == nil,
+              dateValidationMessage == nil,
               fundingValidationMessage == nil,
               moneyAccountValidationMessage == nil,
               creditLimitValidationMessage == nil else {

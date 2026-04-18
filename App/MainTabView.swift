@@ -11,6 +11,7 @@ struct MainTabView: View {
     @State private var incomes: [Income] = []
     @State private var moneyAccounts: [MoneyAccount] = []
     @State private var accountTransfers: [AccountTransfer] = []
+    @State private var accountBalanceAdjustments: [AccountBalanceAdjustment] = []
 
     @State private var showAddExpense = false
     @State private var showAddIncome = false
@@ -191,10 +192,10 @@ struct MainTabView: View {
                             moneyAccountSync.applyNewIncome(newIncome, to: &moneyAccounts)
 
                             AuditLogStore.shared.logIncomeCreated(newIncome, user: auth.currentUser)
-                            
-                            persistIncomes()
-                            persistMoneyAccounts()
+
+                            persistFinancialState()
                             refreshInsight()
+                            
                         }
                         .environmentObject(auth)
                         .environmentObject(settings)
@@ -217,8 +218,7 @@ struct MainTabView: View {
                                     user: auth.currentUser
                                 )
 
-                                persistAccountTransfers()
-                                persistMoneyAccounts()
+                                persistFinancialState()
                             }
                             .environmentObject(settings)
                         }
@@ -237,13 +237,15 @@ struct MainTabView: View {
                     }) {
                         MoneyAccountsSheetView(
                             accounts: moneyAccounts,
+                            balanceAdjustments: accountBalanceAdjustments,
                             expenses: expenses,
                             incomes: incomes,
                             transfers: accountTransfers,
                             startInCreateMode: moneyAccountsSheetStartsInCreateMode
-                        ) { updatedAccounts in
+                        ) { updatedAccounts, updatedAdjustments in
                             moneyAccounts = updatedAccounts
-                            persistMoneyAccounts()
+                            accountBalanceAdjustments = updatedAdjustments
+                            persistFinancialState()
                         }
                         .environmentObject(auth)
                         .environmentObject(settings)
@@ -453,22 +455,28 @@ struct MainTabView: View {
     }
 
     private func reloadHomeData() {
-        expenses = DataManager.shared.loadExpenses(user: auth.currentUser)
-        incomes = DataManager.shared.loadIncomes(user: auth.currentUser)
-        moneyAccounts = DataManager.shared.loadMoneyAccounts(user: auth.currentUser)
-        accountTransfers = DataManager.shared.loadAccountTransfers(user: auth.currentUser)
-        monthlyBudget = DataManager.shared.loadMonthlyBudget(user: auth.currentUser) ?? MonthlyBudget(amount: 0)
+        let snapshot = DataManager.shared.loadFinancialState(user: auth.currentUser)
+
+        expenses = snapshot.expenses
+        incomes = snapshot.incomes
+        moneyAccounts = snapshot.moneyAccounts
+        accountTransfers = snapshot.accountTransfers
+        accountBalanceAdjustments = snapshot.accountBalanceAdjustments
+        monthlyBudget = snapshot.monthlyBudget ?? MonthlyBudget(amount: 0)
+
         profileImageData = DataManager.shared.loadProfileImageData(user: auth.currentUser)
         profileDisplayName = DataManager.shared.loadProfileDisplayName(user: auth.currentUser) ?? ""
-
-        DataManager.shared.resetBudgetAlertStateIfNeeded(user: auth.currentUser)
 
         refreshInsight()
         evaluateBudgetNotifications()
     }
 
     private func persistAccountTransfers() {
-        DataManager.shared.saveAccountTransfers(accountTransfers, user: auth.currentUser)
+        persistFinancialState()
+    }
+    
+    private func persistAccountBalanceAdjustments() {
+        persistFinancialState()
     }
 
     private var transferTabTitle: String {
@@ -484,15 +492,30 @@ struct MainTabView: View {
     }
     
     private func persistExpenses() {
-        DataManager.shared.saveExpenses(expenses, user: auth.currentUser)
+        persistFinancialState()
+    }
+    
+    private func persistFinancialState(using debtsOverride: [Debt]? = nil) {
+        let snapshot = FinancialStateSnapshot(
+            expenses: expenses,
+            incomes: incomes,
+            debts: debtsOverride ?? DataManager.shared.loadDebts(user: auth.currentUser),
+            recurringPayments: DataManager.shared.loadRecurringPayments(user: auth.currentUser),
+            moneyAccounts: moneyAccounts,
+            accountTransfers: accountTransfers,
+            accountBalanceAdjustments: accountBalanceAdjustments,
+            monthlyBudget: monthlyBudget
+        )
+
+        DataManager.shared.saveFinancialState(snapshot, user: auth.currentUser)
     }
 
     private func persistIncomes() {
-        DataManager.shared.saveIncomes(incomes, user: auth.currentUser)
+        persistFinancialState()
     }
 
     private func persistMoneyAccounts() {
-        DataManager.shared.saveMoneyAccounts(moneyAccounts, user: auth.currentUser)
+        persistFinancialState()
     }
     
     private func registerRecurringPaymentAsExpense(
@@ -518,16 +541,10 @@ struct MainTabView: View {
 
         var debts = DataManager.shared.loadDebts(user: auth.currentUser)
         expenseFundingSync.applyNewExpense(generatedExpense, accounts: &moneyAccounts, debts: &debts)
-        DataManager.shared.saveDebts(debts, user: auth.currentUser)
-        
-        AuditLogStore.shared.logExpenseCreated(
-            generatedExpense,
-            user: auth.currentUser,
-            note: settings.language == .spanish ? "Generado automáticamente desde pago fijo" : "Automatically generated from recurring payment"
-        )
 
-        persistExpenses()
-        persistMoneyAccounts()
+        AuditLogStore.shared.logExpenseCreated(generatedExpense, user: auth.currentUser)
+
+        persistFinancialState(using: debts)
         refreshInsight()
         evaluateBudgetNotifications()
     }

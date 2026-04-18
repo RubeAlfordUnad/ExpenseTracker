@@ -48,7 +48,8 @@ struct AddTransferView: View {
         _fromAccountId = State(initialValue: initialFrom)
         _toAccountId = State(initialValue: initialTo)
         _amount = State(initialValue: existingTransfer.map { Self.makeAmountText($0.amount) } ?? "")
-        _transferDate = State(initialValue: existingTransfer?.date ?? Date())
+        let initialTransferDate = min(existingTransfer?.date ?? Date(), Date())
+        _transferDate = State(initialValue: initialTransferDate)
         _note = State(initialValue: existingTransfer?.note ?? "")
     }
 
@@ -110,11 +111,27 @@ struct AddTransferView: View {
         }
     }
 
+    private var dateValidationMessage: String? {
+        guard transferDate <= Date() else {
+            return settings.language == .spanish
+            ? "La fecha de la transferencia no puede estar en el futuro."
+            : "The transfer date cannot be in the future."
+        }
+
+        return nil
+    }
+
     private var validationMessage: String? {
-        baseValidationMessage ?? balanceValidationMessage
+        baseValidationMessage ?? dateValidationMessage ?? balanceValidationMessage
     }
 
     private var validationAlertTitle: String {
+        if dateValidationMessage != nil {
+            return settings.language == .spanish
+            ? "Fecha inválida"
+            : "Invalid date"
+        }
+
         if balanceValidationMessage != nil {
             return settings.language == .spanish
             ? "Fondos insuficientes"
@@ -170,6 +187,7 @@ struct AddTransferView: View {
                     DatePicker(
                         settings.language == .spanish ? "Fecha" : "Date",
                         selection: $transferDate,
+                        in: ...Date(),
                         displayedComponents: .date
                     )
                     .accessibilityIdentifier("transfer.date.field")
@@ -251,7 +269,8 @@ struct AddTransferView: View {
     }
 
     private func saveTransfer() {
-        guard validationMessage == nil else {
+        guard validationMessage == nil,
+              dateValidationMessage == nil else {
             showValidationAlert = true
             return
         }

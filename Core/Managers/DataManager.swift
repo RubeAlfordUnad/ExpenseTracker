@@ -62,6 +62,10 @@ final class DataManager {
     private func accountTransfersKey(for user: String) -> String {
         "accountTransfers_\(user)"
     }
+    
+    private func accountBalanceAdjustmentsKey(for user: String) -> String {
+        "accountBalanceAdjustments_\(user)"
+    }
 
     private func budgetKey(for user: String) -> String {
         "monthlyBudget_\(user)"
@@ -364,6 +368,141 @@ final class DataManager {
                 .sorted { $0.date > $1.date }
         }
     }
+    
+    // MARK: - Account Balance Adjustments
+
+    func saveAccountBalanceAdjustments(_ adjustments: [AccountBalanceAdjustment], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            legacySave(adjustments, forKey: accountBalanceAdjustmentsKey(for: cleanUser))
+            return
+        }
+
+        do {
+            let context = makeContext()
+            try replaceAccountBalanceAdjustments(adjustments, user: cleanUser, context: context)
+            try context.save()
+        } catch {
+            AppLogger.debug("Error guardando ajustes de saldo en SwiftData: \(error)")
+            legacySave(adjustments, forKey: accountBalanceAdjustmentsKey(for: cleanUser))
+        }
+    }
+
+    func loadAccountBalanceAdjustments(user: String) -> [AccountBalanceAdjustment] {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return [] }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            return (legacyLoad([AccountBalanceAdjustment].self, forKey: accountBalanceAdjustmentsKey(for: cleanUser)) ?? [])
+                .sorted(by: accountBalanceAdjustmentSort)
+        }
+
+        do {
+            let context = makeContext()
+            let targetUser = cleanUser
+
+            let descriptor = FetchDescriptor<StoredAccountBalanceAdjustment>(
+                predicate: #Predicate { $0.user == targetUser },
+                sortBy: [
+                    SortDescriptor(\StoredAccountBalanceAdjustment.date, order: .reverse),
+                    SortDescriptor(\StoredAccountBalanceAdjustment.createdAt, order: .reverse)
+                ]
+            )
+
+            return try context.fetch(descriptor)
+                .map { $0.toAccountBalanceAdjustment() }
+                .sorted(by: accountBalanceAdjustmentSort)
+        } catch {
+            AppLogger.debug("Error cargando ajustes de saldo desde SwiftData: \(error)")
+            return (legacyLoad([AccountBalanceAdjustment].self, forKey: accountBalanceAdjustmentsKey(for: cleanUser)) ?? [])
+                .sorted(by: accountBalanceAdjustmentSort)
+        }
+    }
+    
+    // MARK: - Financial State Snapshot
+
+    func saveFinancialState(_ snapshot: FinancialStateSnapshot, user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        guard migrateFinancialDataIfNeeded(for: cleanUser) else {
+            legacySave(snapshot.expenses, forKey: expensesKey(for: cleanUser))
+            legacySave(snapshot.incomes, forKey: incomesKey(for: cleanUser))
+            legacySave(snapshot.debts, forKey: debtsKey(for: cleanUser))
+            legacySave(snapshot.recurringPayments, forKey: recurringPaymentsKey(for: cleanUser))
+            legacySave(snapshot.moneyAccounts, forKey: moneyAccountsKey(for: cleanUser))
+            legacySave(snapshot.accountTransfers, forKey: accountTransfersKey(for: cleanUser))
+            legacySave(snapshot.accountBalanceAdjustments, forKey: accountBalanceAdjustmentsKey(for: cleanUser))
+
+            if let budget = snapshot.monthlyBudget,
+               budget.amount.isFinite,
+               budget.amount > 0 {
+                legacySave(budget, forKey: budgetKey(for: cleanUser))
+            } else {
+                UserDefaults.standard.removeObject(forKey: budgetKey(for: cleanUser))
+            }
+
+            return
+        }
+
+        do {
+            let context = makeContext()
+
+            try replaceExpenses(snapshot.expenses, user: cleanUser, context: context)
+            try replaceIncomes(snapshot.incomes, user: cleanUser, context: context)
+            try replaceDebts(snapshot.debts, user: cleanUser, context: context)
+            try replaceRecurringPayments(snapshot.recurringPayments, user: cleanUser, context: context)
+            try replaceMoneyAccounts(snapshot.moneyAccounts, user: cleanUser, context: context)
+            try replaceAccountTransfers(snapshot.accountTransfers, user: cleanUser, context: context)
+            try replaceAccountBalanceAdjustments(snapshot.accountBalanceAdjustments, user: cleanUser, context: context)
+
+            if let budget = snapshot.monthlyBudget,
+               budget.amount.isFinite,
+               budget.amount > 0 {
+                try upsertMonthlyBudget(budget, user: cleanUser, context: context)
+            } else {
+                try deleteStoredMonthlyBudget(user: cleanUser, context: context)
+            }
+
+            try context.save()
+        } catch {
+            AppLogger.debug("Error guardando snapshot financiero unificado: \(error)")
+
+            legacySave(snapshot.expenses, forKey: expensesKey(for: cleanUser))
+            legacySave(snapshot.incomes, forKey: incomesKey(for: cleanUser))
+            legacySave(snapshot.debts, forKey: debtsKey(for: cleanUser))
+            legacySave(snapshot.recurringPayments, forKey: recurringPaymentsKey(for: cleanUser))
+            legacySave(snapshot.moneyAccounts, forKey: moneyAccountsKey(for: cleanUser))
+            legacySave(snapshot.accountTransfers, forKey: accountTransfersKey(for: cleanUser))
+            legacySave(snapshot.accountBalanceAdjustments, forKey: accountBalanceAdjustmentsKey(for: cleanUser))
+
+            if let budget = snapshot.monthlyBudget,
+               budget.amount.isFinite,
+               budget.amount > 0 {
+                legacySave(budget, forKey: budgetKey(for: cleanUser))
+            } else {
+                UserDefaults.standard.removeObject(forKey: budgetKey(for: cleanUser))
+            }
+        }
+    }
+
+    func loadFinancialState(user: String) -> FinancialStateSnapshot {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return FinancialStateSnapshot() }
+
+        return FinancialStateSnapshot(
+            expenses: loadExpenses(user: cleanUser),
+            incomes: loadIncomes(user: cleanUser),
+            debts: loadDebts(user: cleanUser),
+            recurringPayments: loadRecurringPayments(user: cleanUser),
+            moneyAccounts: loadMoneyAccounts(user: cleanUser),
+            accountTransfers: loadAccountTransfers(user: cleanUser),
+            accountBalanceAdjustments: loadAccountBalanceAdjustments(user: cleanUser),
+            monthlyBudget: loadMonthlyBudget(user: cleanUser)
+        )
+    }
 
     // MARK: - Monthly Budget
 
@@ -610,6 +749,7 @@ final class DataManager {
             try deleteStoredRecurringPayments(user: cleanUser, context: context)
             try deleteStoredMoneyAccounts(user: cleanUser, context: context)
             try deleteStoredAccountTransfers(user: cleanUser, context: context)
+            try deleteStoredAccountBalanceAdjustments(user: cleanUser, context: context)
             try deleteStoredMonthlyBudget(user: cleanUser, context: context)
             try context.save()
         } catch {
@@ -630,6 +770,7 @@ final class DataManager {
             recurringPaymentsKey(for: cleanUser),
             moneyAccountsKey(for: cleanUser),
             accountTransfersKey(for: cleanUser),
+            accountBalanceAdjustmentsKey(for: cleanUser),
             budgetKey(for: cleanUser),
             notificationPreferencesKey(for: cleanUser),
             budgetAlertStateKey(for: cleanUser),
@@ -681,6 +822,13 @@ final class DataManager {
                 try replaceAccountTransfers(legacyAccountTransfers, user: cleanUser, context: context)
             }
             
+            if let legacyAccountBalanceAdjustments: [AccountBalanceAdjustment] = legacyLoad(
+                [AccountBalanceAdjustment].self,
+                forKey: accountBalanceAdjustmentsKey(for: cleanUser)
+            ) {
+                try replaceAccountBalanceAdjustments(legacyAccountBalanceAdjustments, user: cleanUser, context: context)
+            }
+            
             if let legacyBudget: MonthlyBudget = legacyLoad(MonthlyBudget.self, forKey: budgetKey(for: cleanUser)) {
                 try upsertMonthlyBudget(legacyBudget, user: cleanUser, context: context)
             }
@@ -693,6 +841,7 @@ final class DataManager {
             defaults.removeObject(forKey: debtsKey(for: cleanUser))
             defaults.removeObject(forKey: recurringPaymentsKey(for: cleanUser))
             defaults.removeObject(forKey: moneyAccountsKey(for: cleanUser))
+            defaults.removeObject(forKey: accountBalanceAdjustmentsKey(for: cleanUser))
             defaults.removeObject(forKey: budgetKey(for: cleanUser))
             defaults.set(true, forKey: migrationKey)
 
@@ -755,6 +904,27 @@ final class DataManager {
         for transfer in transfers {
             context.insert(StoredAccountTransfer(transfer: transfer, user: user))
         }
+    }
+    
+    private func replaceAccountBalanceAdjustments(
+        _ adjustments: [AccountBalanceAdjustment],
+        user: String,
+        context: ModelContext
+    ) throws {
+        try deleteStoredAccountBalanceAdjustments(user: user, context: context)
+
+        for adjustment in adjustments {
+            context.insert(StoredAccountBalanceAdjustment(adjustment: adjustment, user: user))
+        }
+    }
+
+    private func deleteStoredAccountBalanceAdjustments(user: String, context: ModelContext) throws {
+        let targetUser = user
+        let descriptor = FetchDescriptor<StoredAccountBalanceAdjustment>(
+            predicate: #Predicate { $0.user == targetUser }
+        )
+
+        try context.fetch(descriptor).forEach { context.delete($0) }
     }
 
     private func deleteStoredAccountTransfers(user: String, context: ModelContext) throws {
@@ -862,5 +1032,16 @@ final class DataManager {
         let year = calendar.component(.year, from: now)
         let month = calendar.component(.month, from: now)
         return "\(year)-\(month)"
+    }
+    
+    private func accountBalanceAdjustmentSort(
+        _ lhs: AccountBalanceAdjustment,
+        _ rhs: AccountBalanceAdjustment
+    ) -> Bool {
+        if lhs.date != rhs.date {
+            return lhs.date > rhs.date
+        }
+
+        return lhs.createdAt > rhs.createdAt
     }
 }

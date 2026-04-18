@@ -7,6 +7,7 @@ struct AppBackupFinancialStateSanitizer {
     func sanitize(_ snapshot: AppBackupSnapshot) throws -> AppBackupSnapshot {
         let sanitizedMoneyAccounts = try sanitizeMoneyAccounts(snapshot.moneyAccounts)
         let sanitizedDebts = try sanitizeDebts(snapshot.debts)
+        let sanitizedAdjustments = try sanitizeAccountBalanceAdjustments(snapshot.accountBalanceAdjustments)
 
         return AppBackupSnapshot(
             version: snapshot.version,
@@ -18,11 +19,13 @@ struct AppBackupFinancialStateSanitizer {
             recurringPayments: snapshot.recurringPayments,
             moneyAccounts: sanitizedMoneyAccounts,
             accountTransfers: snapshot.accountTransfers,
+            accountBalanceAdjustments: sanitizedAdjustments,
             monthlyBudget: snapshot.monthlyBudget,
             notificationPreferences: snapshot.notificationPreferences,
             expenseCustomCategories: snapshot.expenseCustomCategories,
             incomeCustomCategories: snapshot.incomeCustomCategories,
             moneyAccountCustomCategories: snapshot.moneyAccountCustomCategories,
+            recurringPaymentCustomCategories: snapshot.recurringPaymentCustomCategories,
             profileImageData: snapshot.profileImageData,
             profileDisplayName: snapshot.profileDisplayName
         )
@@ -40,13 +43,30 @@ struct AppBackupFinancialStateSanitizer {
                 throw AppBackupError.invalidSnapshot
             }
 
+            let normalizedOpeningBalance: Double?
+            if let openingBalance = account.openingBalance {
+                guard openingBalance.isFinite else {
+                    throw AppBackupError.invalidSnapshot
+                }
+
+                let cleanedOpeningBalance = abs(openingBalance) <= tolerance ? 0 : openingBalance
+                guard cleanedOpeningBalance >= 0 else {
+                    throw AppBackupError.invalidSnapshot
+                }
+                normalizedOpeningBalance = cleanedOpeningBalance
+            } else {
+                normalizedOpeningBalance = nil
+            }
+
             return MoneyAccount(
                 id: account.id,
                 name: account.name,
                 balance: normalizedBalance,
                 kind: account.kind,
                 customCategoryName: account.customCategoryName,
-                includeInAvailableTotal: account.includeInAvailableTotal
+                includeInAvailableTotal: account.includeInAvailableTotal,
+                openingBalance: normalizedOpeningBalance,
+                openingBalanceDate: account.openingBalanceDate
             )
         }
     }
@@ -79,6 +99,30 @@ struct AppBackupFinancialStateSanitizer {
                 brand: debt.brand,
                 totalLimit: normalizedLimit,
                 remainingDebt: normalizedRemainingDebt
+            )
+        }
+    }
+
+    private func sanitizeAccountBalanceAdjustments(
+        _ adjustments: [AccountBalanceAdjustment]
+    ) throws -> [AccountBalanceAdjustment] {
+        try adjustments.map { adjustment in
+            guard adjustment.amount.isFinite else {
+                throw AppBackupError.invalidSnapshot
+            }
+
+            let normalizedAmount = abs(adjustment.amount) <= tolerance ? 0 : adjustment.amount
+            guard abs(normalizedAmount) > tolerance else {
+                throw AppBackupError.invalidSnapshot
+            }
+
+            return AccountBalanceAdjustment(
+                id: adjustment.id,
+                moneyAccountId: adjustment.moneyAccountId,
+                amount: normalizedAmount,
+                date: adjustment.date,
+                reason: adjustment.reason,
+                createdAt: adjustment.createdAt
             )
         }
     }

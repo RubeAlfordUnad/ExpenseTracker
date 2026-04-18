@@ -41,12 +41,61 @@ struct AddIncomeView: View {
         _category = State(initialValue: existingIncome?.category ?? .other)
         _customCategoryName = State(initialValue: existingIncome?.customCategoryName ?? "")
         _comment = State(initialValue: existingIncome?.comment ?? "")
-        _incomeDate = State(initialValue: existingIncome?.date ?? Date())
-        _selectedMoneyAccountId = State(initialValue: validExistingAccountId)
+        let initialIncomeDate = min(existingIncome?.date ?? Date(), Date())
+        _incomeDate = State(initialValue: initialIncomeDate)
+        _selectedMoneyAccountId = State(initialValue: validExistingAccountId ?? moneyAccounts.first?.id)
     }
 
     private var validationError: FormValidationError? {
         FormValidator.validateIncome(title: title, amount: amount)
+    }
+
+    private var dateValidationMessage: String? {
+        guard incomeDate <= Date() else {
+            return settings.language == .spanish
+            ? "La fecha del ingreso no puede estar en el futuro."
+            : "The income date cannot be in the future."
+        }
+
+        return nil
+    }
+
+    private var accountValidationMessage: String? {
+        if moneyAccounts.isEmpty {
+            return settings.language == .spanish
+            ? "Debes crear al menos una cuenta antes de registrar este ingreso."
+            : "You need to create at least one account before registering this income."
+        }
+
+        if selectedMoneyAccountId == nil {
+            return settings.language == .spanish
+            ? "Selecciona la cuenta donde entró este ingreso."
+            : "Select the account this income went into."
+        }
+
+        return nil
+    }
+
+    private var activeValidationMessage: String? {
+        validationError?.message(language: settings.language)
+        ?? dateValidationMessage
+        ?? accountValidationMessage
+    }
+
+    private var validationAlertTitle: String {
+        if let validationError {
+            return validationError.title(language: settings.language)
+        }
+
+        if dateValidationMessage != nil {
+            return settings.language == .spanish ? "Fecha inválida" : "Invalid date"
+        }
+
+        if accountValidationMessage != nil {
+            return settings.language == .spanish ? "Cuenta requerida" : "Account required"
+        }
+
+        return settings.language == .spanish ? "Datos inválidos" : "Invalid data"
     }
 
     private var isEditing: Bool {
@@ -72,6 +121,7 @@ struct AddIncomeView: View {
                     DatePicker(
                         settings.language == .spanish ? "Fecha" : "Date",
                         selection: $incomeDate,
+                        in: ...Date(),
                         displayedComponents: .date
                     )
                     .accessibilityIdentifier("income.date.field")
@@ -149,7 +199,7 @@ struct AddIncomeView: View {
                             settings.language == .spanish ? "Entra a" : "Goes to",
                             selection: $selectedMoneyAccountId
                         ) {
-                            Text(settings.language == .spanish ? "Sin cuenta" : "No account")
+                            Text(settings.language == .spanish ? "Selecciona una cuenta" : "Select an account")
                                 .tag(nil as UUID?)
 
                             ForEach(moneyAccounts) { account in
@@ -183,9 +233,9 @@ struct AddIncomeView: View {
                     Text(settings.language == .spanish ? "Comentario" : "Comment")
                 }
 
-                if let validationError {
+                if let activeValidationMessage {
                     Section {
-                        Text(validationError.message(language: settings.language))
+                        Text(activeValidationMessage)
                             .font(.footnote)
                             .foregroundColor(.red)
                     }
@@ -202,7 +252,11 @@ struct AddIncomeView: View {
                     Button(settings.t("common.save")) {
                         saveIncome()
                     }
-                    .disabled(validationError != nil)
+                    .disabled(
+                        validationError != nil
+                        || dateValidationMessage != nil
+                        || accountValidationMessage != nil
+                    )
                     .accessibilityIdentifier("income.save.button")
                 }
 
@@ -221,12 +275,12 @@ struct AddIncomeView: View {
                 }
             }
             .alert(
-                validationError?.title(language: settings.language) ?? "",
+                validationAlertTitle,
                 isPresented: $showValidationAlert
             ) {
                 Button("OK", role: .cancel) { }
             } message: {
-                Text(validationError?.message(language: settings.language) ?? "")
+                Text(activeValidationMessage ?? "")
             }
             .onAppear {
                 reloadCustomCategories()
@@ -256,7 +310,9 @@ struct AddIncomeView: View {
     }
 
     private func saveIncome() {
-        guard validationError == nil else {
+        guard validationError == nil,
+              dateValidationMessage == nil,
+              accountValidationMessage == nil else {
             showValidationAlert = true
             return
         }

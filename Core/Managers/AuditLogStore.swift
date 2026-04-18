@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 final class AuditLogStore {
 
@@ -7,10 +8,15 @@ final class AuditLogStore {
     private init() {}
 
     private let defaults = UserDefaults.standard
-    private let maxEntries = 600
+    private let maxEntries = 5_000
+    private let migrationPrefix = "audit_logs_swiftdata_migrated_v1_"
 
     private func logsKey(for user: String) -> String {
         "audit_logs_\(user)"
+    }
+
+    private func migrationFlagKey(for user: String) -> String {
+        "\(migrationPrefix)\(user)"
     }
 
     private func sanitizeUser(_ user: String) -> String {
@@ -21,36 +27,79 @@ final class AuditLogStore {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return [] }
 
-        guard let data = defaults.data(forKey: logsKey(for: cleanUser)),
-              let decoded = try? JSONDecoder().decode([AuditLogEntry].self, from: data) else {
-            return []
-        }
+        migrateLegacyEntriesIfNeeded(user: cleanUser)
 
-        return decoded.sorted(by: { lhs, rhs in
-            lhs.timestamp > rhs.timestamp
-        })
+        do {
+            let context = makeContext()
+            let targetUser = cleanUser
+
+            let descriptor = FetchDescriptor<StoredAuditLogEntry>(
+                predicate: #Predicate { $0.user == targetUser },
+                sortBy: [SortDescriptor(\StoredAuditLogEntry.timestamp, order: .reverse)]
+            )
+
+            return try context.fetch(descriptor).map { $0.toAuditLogEntry() }
+        } catch {
+            return loadLegacyEntries(user: cleanUser)
+        }
     }
 
     func append(_ entry: AuditLogEntry, user: String) {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return }
 
-        var entries = loadEntries(user: cleanUser)
-        entries.insert(entry, at: 0)
+        migrateLegacyEntriesIfNeeded(user: cleanUser)
 
-        if entries.count > maxEntries {
-            entries = Array(entries.prefix(maxEntries))
-        }
-
-        if let data = try? JSONEncoder().encode(entries) {
-            defaults.set(data, forKey: logsKey(for: cleanUser))
+        do {
+            let context = makeContext()
+            context.insert(StoredAuditLogEntry(entry: entry, user: cleanUser))
+            try trimStoredEntriesIfNeeded(user: cleanUser, context: context)
+            try context.save()
+        } catch {
+            appendLegacy(entry, user: cleanUser)
         }
     }
 
     func clear(user: String) {
         let cleanUser = sanitizeUser(user)
         guard !cleanUser.isEmpty else { return }
+
+        do {
+            let context = makeContext()
+            try deleteStoredEntries(user: cleanUser, context: context)
+            try context.save()
+        } catch {
+            // si SwiftData falla, igual limpiamos el fallback viejo
+        }
+
         defaults.removeObject(forKey: logsKey(for: cleanUser))
+        defaults.removeObject(forKey: migrationFlagKey(for: cleanUser))
+    }
+
+    func replaceEntries(_ entries: [AuditLogEntry], user: String) {
+        let cleanUser = sanitizeUser(user)
+        guard !cleanUser.isEmpty else { return }
+
+        migrateLegacyEntriesIfNeeded(user: cleanUser)
+
+        let trimmed = Array(entries.sorted { $0.timestamp > $1.timestamp }.prefix(maxEntries))
+
+        do {
+            let context = makeContext()
+            try deleteStoredEntries(user: cleanUser, context: context)
+
+            for entry in trimmed {
+                context.insert(StoredAuditLogEntry(entry: entry, user: cleanUser))
+            }
+
+            try context.save()
+            defaults.removeObject(forKey: logsKey(for: cleanUser))
+        } catch {
+            defaults.removeObject(forKey: logsKey(for: cleanUser))
+            if let data = try? JSONEncoder().encode(trimmed) {
+                defaults.set(data, forKey: logsKey(for: cleanUser))
+            }
+        }
     }
 
     // MARK: - Logging helpers
@@ -63,6 +112,7 @@ final class AuditLogStore {
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .expense,
+                entityId: expense.id,
                 action: .created,
                 title: expense.title,
                 detail: summary,
@@ -81,14 +131,15 @@ final class AuditLogStore {
         let newSummary = expenseSummary(new)
         let eventTime = Date()
 
-        let original = latestOriginalValue(for: new.title, entity: .expense, user: user) ?? oldSummary
-        let originalTime = latestOriginalTimestamp(for: new.title, entity: .expense, user: user) ?? eventTime
-        let previousTime = latestNewTimestamp(for: new.title, entity: .expense, user: user) ?? eventTime
+        let original = latestOriginalValue(for: new.title, entity: .expense, entityId: new.id, user: user) ?? oldSummary
+        let originalTime = latestOriginalTimestamp(for: new.title, entity: .expense, entityId: new.id, user: user) ?? eventTime
+        let previousTime = latestNewTimestamp(for: new.title, entity: .expense, entityId: new.id, user: user) ?? eventTime
 
         append(
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .expense,
+                entityId: new.id,
                 action: .updated,
                 title: new.title,
                 detail: newSummary,
@@ -106,11 +157,12 @@ final class AuditLogStore {
 
     func logExpenseDeleted(_ expense: Expense, user: String, note: String? = nil) {
         let summary = expenseSummary(expense)
-        let original = latestOriginalValue(for: expense.title, entity: .expense, user: user) ?? summary
+        let original = latestOriginalValue(for: expense.title, entity: .expense, entityId: expense.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .expense,
+                entityId: expense.id,
                 action: .deleted,
                 title: expense.title,
                 detail: summary,
@@ -130,6 +182,7 @@ final class AuditLogStore {
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .income,
+                entityId: income.id,
                 action: .created,
                 title: income.title,
                 detail: summary,
@@ -148,14 +201,15 @@ final class AuditLogStore {
         let newSummary = incomeSummary(new)
         let eventTime = Date()
 
-        let original = latestOriginalValue(for: new.title, entity: .income, user: user) ?? oldSummary
-        let originalTime = latestOriginalTimestamp(for: new.title, entity: .income, user: user) ?? eventTime
-        let previousTime = latestNewTimestamp(for: new.title, entity: .income, user: user) ?? eventTime
+        let original = latestOriginalValue(for: new.title, entity: .income, entityId: new.id, user: user) ?? oldSummary
+        let originalTime = latestOriginalTimestamp(for: new.title, entity: .income, entityId: new.id, user: user) ?? eventTime
+        let previousTime = latestNewTimestamp(for: new.title, entity: .income, entityId: new.id, user: user) ?? eventTime
 
         append(
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .income,
+                entityId: new.id,
                 action: .updated,
                 title: new.title,
                 detail: newSummary,
@@ -173,11 +227,12 @@ final class AuditLogStore {
 
     func logIncomeDeleted(_ income: Income, user: String, note: String? = nil) {
         let summary = incomeSummary(income)
-        let original = latestOriginalValue(for: income.title, entity: .income, user: user) ?? summary
+        let original = latestOriginalValue(for: income.title, entity: .income, entityId: income.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .income,
+                entityId: income.id,
                 action: .deleted,
                 title: income.title,
                 detail: summary,
@@ -198,6 +253,7 @@ final class AuditLogStore {
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .transfer,
+                entityId: transfer.id,
                 action: .created,
                 title: title,
                 detail: summary,
@@ -224,14 +280,15 @@ final class AuditLogStore {
         let title = "\(fromNewName) → \(toNewName)"
         let eventTime = Date()
 
-        let original = latestOriginalValue(for: title, entity: .transfer, user: user) ?? oldSummary
-        let originalTime = latestOriginalTimestamp(for: title, entity: .transfer, user: user) ?? eventTime
-        let previousTime = latestNewTimestamp(for: title, entity: .transfer, user: user) ?? eventTime
+        let original = latestOriginalValue(for: title, entity: .transfer, entityId: new.id, user: user) ?? oldSummary
+        let originalTime = latestOriginalTimestamp(for: title, entity: .transfer, entityId: new.id, user: user) ?? eventTime
+        let previousTime = latestNewTimestamp(for: title, entity: .transfer, entityId: new.id, user: user) ?? eventTime
 
         append(
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .transfer,
+                entityId: new.id,
                 action: .updated,
                 title: title,
                 detail: newSummary,
@@ -249,11 +306,12 @@ final class AuditLogStore {
     func logTransferDeleted(_ transfer: AccountTransfer, fromName: String, toName: String, user: String) {
         let summary = transferSummary(transfer, fromName: fromName, toName: toName)
         let title = "\(fromName) → \(toName)"
-        let original = latestOriginalValue(for: title, entity: .transfer, user: user) ?? summary
+        let original = latestOriginalValue(for: title, entity: .transfer, entityId: transfer.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .transfer,
+                entityId: transfer.id,
                 action: .deleted,
                 title: title,
                 detail: summary,
@@ -272,6 +330,7 @@ final class AuditLogStore {
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .moneyAccount,
+                entityId: account.id,
                 action: .created,
                 title: account.name,
                 detail: summary,
@@ -289,14 +348,15 @@ final class AuditLogStore {
         let newSummary = moneyAccountSummary(new)
         let eventTime = Date()
 
-        let original = latestOriginalValue(for: new.name, entity: .moneyAccount, user: user) ?? oldSummary
-        let originalTime = latestOriginalTimestamp(for: new.name, entity: .moneyAccount, user: user) ?? eventTime
-        let previousTime = latestNewTimestamp(for: new.name, entity: .moneyAccount, user: user) ?? eventTime
+        let original = latestOriginalValue(for: new.name, entity: .moneyAccount, entityId: new.id, user: user) ?? oldSummary
+        let originalTime = latestOriginalTimestamp(for: new.name, entity: .moneyAccount, entityId: new.id, user: user) ?? eventTime
+        let previousTime = latestNewTimestamp(for: new.name, entity: .moneyAccount, entityId: new.id, user: user) ?? eventTime
 
         append(
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .moneyAccount,
+                entityId: new.id,
                 action: .updated,
                 title: new.name,
                 detail: newSummary,
@@ -313,16 +373,59 @@ final class AuditLogStore {
 
     func logMoneyAccountDeleted(_ account: MoneyAccount, user: String) {
         let summary = moneyAccountSummary(account)
-        let original = latestOriginalValue(for: account.name, entity: .moneyAccount, user: user) ?? summary
+        let original = latestOriginalValue(for: account.name, entity: .moneyAccount, entityId: account.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .moneyAccount,
+                entityId: account.id,
                 action: .deleted,
                 title: account.name,
                 detail: summary,
                 originalValue: original,
                 previousValue: summary
+            ),
+            user: user
+        )
+    }
+
+    func logMoneyAccountBalanceAdjusted(
+        accountName: String,
+        previousBalance: Double,
+        newBalance: Double,
+        adjustment: AccountBalanceAdjustment,
+        user: String
+    ) {
+        let eventTime = Date()
+        let signedAdjustment = signedAmountString(adjustment.amount)
+
+        let reasonText: String
+        if let reason = adjustment.normalizedReason {
+            reasonText = reason
+        } else {
+            reasonText = "Sin motivo especificado"
+        }
+
+        append(
+            AuditLogEntry(
+                timestamp: eventTime,
+                entity: .moneyAccount,
+                entityId: adjustment.moneyAccountId,
+                action: .updated,
+                title: accountName,
+                detail: """
+                Ajuste de saldo registrado
+                Fecha efectiva: \(dayString(adjustment.date))
+                Monto del ajuste: \(signedAdjustment)
+                """,
+                previousValue: "Saldo antes: \(amountString(previousBalance))",
+                previousTimestamp: adjustment.date,
+                newValue: "Saldo después: \(amountString(newBalance))",
+                newTimestamp: adjustment.date,
+                note: """
+                Motivo: \(reasonText)
+                Ajuste aplicado: \(signedAdjustment)
+                """
             ),
             user: user
         )
@@ -336,6 +439,7 @@ final class AuditLogStore {
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .debt,
+                entityId: debt.id,
                 action: .created,
                 title: debt.cardName,
                 detail: summary,
@@ -353,14 +457,15 @@ final class AuditLogStore {
         let newSummary = debtSummary(new)
         let eventTime = Date()
 
-        let original = latestOriginalValue(for: new.cardName, entity: .debt, user: user) ?? oldSummary
-        let originalTime = latestOriginalTimestamp(for: new.cardName, entity: .debt, user: user) ?? eventTime
-        let previousTime = latestNewTimestamp(for: new.cardName, entity: .debt, user: user) ?? eventTime
+        let original = latestOriginalValue(for: new.cardName, entity: .debt, entityId: new.id, user: user) ?? oldSummary
+        let originalTime = latestOriginalTimestamp(for: new.cardName, entity: .debt, entityId: new.id, user: user) ?? eventTime
+        let previousTime = latestNewTimestamp(for: new.cardName, entity: .debt, entityId: new.id, user: user) ?? eventTime
 
         append(
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .debt,
+                entityId: new.id,
                 action: .updated,
                 title: new.cardName,
                 detail: newSummary,
@@ -378,11 +483,12 @@ final class AuditLogStore {
 
     func logDebtDeleted(_ debt: Debt, user: String) {
         let summary = debtSummary(debt)
-        let original = latestOriginalValue(for: debt.cardName, entity: .debt, user: user) ?? summary
+        let original = latestOriginalValue(for: debt.cardName, entity: .debt, entityId: debt.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .debt,
+                entityId: debt.id,
                 action: .deleted,
                 title: debt.cardName,
                 detail: summary,
@@ -425,6 +531,7 @@ final class AuditLogStore {
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .recurringPayment,
+                entityId: payment.id,
                 action: .created,
                 title: payment.title,
                 detail: summary,
@@ -442,14 +549,15 @@ final class AuditLogStore {
         let newSummary = recurringPaymentSummary(new)
         let eventTime = Date()
 
-        let original = latestOriginalValue(for: new.title, entity: .recurringPayment, user: user) ?? oldSummary
-        let originalTime = latestOriginalTimestamp(for: new.title, entity: .recurringPayment, user: user) ?? eventTime
-        let previousTime = latestNewTimestamp(for: new.title, entity: .recurringPayment, user: user) ?? eventTime
+        let original = latestOriginalValue(for: new.title, entity: .recurringPayment, entityId: new.id, user: user) ?? oldSummary
+        let originalTime = latestOriginalTimestamp(for: new.title, entity: .recurringPayment, entityId: new.id, user: user) ?? eventTime
+        let previousTime = latestNewTimestamp(for: new.title, entity: .recurringPayment, entityId: new.id, user: user) ?? eventTime
 
         append(
             AuditLogEntry(
                 timestamp: eventTime,
                 entity: .recurringPayment,
+                entityId: new.id,
                 action: .updated,
                 title: new.title,
                 detail: newSummary,
@@ -466,11 +574,12 @@ final class AuditLogStore {
 
     func logRecurringPaymentDeleted(_ payment: RecurringPayment, user: String) {
         let summary = recurringPaymentSummary(payment)
-        let original = latestOriginalValue(for: payment.title, entity: .recurringPayment, user: user) ?? summary
+        let original = latestOriginalValue(for: payment.title, entity: .recurringPayment, entityId: payment.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .recurringPayment,
+                entityId: payment.id,
                 action: .deleted,
                 title: payment.title,
                 detail: summary,
@@ -483,11 +592,12 @@ final class AuditLogStore {
 
     func logRecurringPaymentMarkedPaid(_ payment: RecurringPayment, fromAccountName: String, user: String) {
         let summary = recurringPaymentSummary(payment)
-        let original = latestOriginalValue(for: payment.title, entity: .recurringPayment, user: user) ?? summary
+        let original = latestOriginalValue(for: payment.title, entity: .recurringPayment, entityId: payment.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .recurringPayment,
+                entityId: payment.id,
                 action: .markedPaid,
                 title: payment.title,
                 detail: summary,
@@ -503,11 +613,12 @@ final class AuditLogStore {
 
     func logRecurringPaymentMarkedUnpaid(_ payment: RecurringPayment, user: String) {
         let summary = recurringPaymentSummary(payment)
-        let original = latestOriginalValue(for: payment.title, entity: .recurringPayment, user: user) ?? summary
+        let original = latestOriginalValue(for: payment.title, entity: .recurringPayment, entityId: payment.id, user: user) ?? summary
 
         append(
             AuditLogEntry(
                 entity: .recurringPayment,
+                entityId: payment.id,
                 action: .markedUnpaid,
                 title: payment.title,
                 detail: summary,
@@ -536,31 +647,126 @@ final class AuditLogStore {
     private func latestOriginalValue(
         for title: String,
         entity: AuditLogEntity,
+        entityId: UUID?,
         user: String
     ) -> String? {
         loadEntries(user: user)
-            .first(where: { $0.title == title && $0.entity == entity })?
+            .first(where: { matches($0, entity: entity, title: title, entityId: entityId) })?
             .originalValue
     }
-    
+
     private func latestOriginalTimestamp(
         for title: String,
         entity: AuditLogEntity,
+        entityId: UUID?,
         user: String
     ) -> Date? {
         loadEntries(user: user)
-            .first(where: { $0.title == title && $0.entity == entity })?
+            .first(where: { matches($0, entity: entity, title: title, entityId: entityId) })?
             .originalTimestamp
     }
 
     private func latestNewTimestamp(
         for title: String,
         entity: AuditLogEntity,
+        entityId: UUID?,
         user: String
     ) -> Date? {
         loadEntries(user: user)
-            .first(where: { $0.title == title && $0.entity == entity })?
+            .first(where: { matches($0, entity: entity, title: title, entityId: entityId) })?
             .newTimestamp
+    }
+
+    private func matches(
+        _ entry: AuditLogEntry,
+        entity: AuditLogEntity,
+        title: String,
+        entityId: UUID?
+    ) -> Bool {
+        guard entry.entity == entity else { return false }
+
+        if let entityId {
+            return entry.entityId == entityId || (entry.entityId == nil && entry.title == title)
+        }
+
+        return entry.title == title
+    }
+
+    // MARK: - Legacy migration / fallback
+
+    private func migrateLegacyEntriesIfNeeded(user: String) {
+        guard !defaults.bool(forKey: migrationFlagKey(for: user)) else { return }
+
+        let legacyEntries = loadLegacyEntries(user: user)
+        guard !legacyEntries.isEmpty else {
+            defaults.set(true, forKey: migrationFlagKey(for: user))
+            return
+        }
+
+        do {
+            let context = makeContext()
+            try deleteStoredEntries(user: user, context: context)
+
+            for entry in legacyEntries.prefix(maxEntries) {
+                context.insert(StoredAuditLogEntry(entry: entry, user: user))
+            }
+
+            try context.save()
+            defaults.removeObject(forKey: logsKey(for: user))
+            defaults.set(true, forKey: migrationFlagKey(for: user))
+        } catch {
+            // si falla, seguimos operando en legacy sin marcar migrado
+        }
+    }
+
+    private func appendLegacy(_ entry: AuditLogEntry, user: String) {
+        var entries = loadLegacyEntries(user: user)
+        entries.insert(entry, at: 0)
+
+        if entries.count > maxEntries {
+            entries = Array(entries.prefix(maxEntries))
+        }
+
+        if let data = try? JSONEncoder().encode(entries) {
+            defaults.set(data, forKey: logsKey(for: user))
+        }
+    }
+
+    private func loadLegacyEntries(user: String) -> [AuditLogEntry] {
+        guard let data = defaults.data(forKey: logsKey(for: user)),
+              let decoded = try? JSONDecoder().decode([AuditLogEntry].self, from: data) else {
+            return []
+        }
+
+        return decoded.sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func makeContext() -> ModelContext {
+        ModelContext(PersistenceController.shared.container)
+    }
+
+    private func trimStoredEntriesIfNeeded(user: String, context: ModelContext) throws {
+        let targetUser = user
+        let descriptor = FetchDescriptor<StoredAuditLogEntry>(
+            predicate: #Predicate { $0.user == targetUser },
+            sortBy: [SortDescriptor(\StoredAuditLogEntry.timestamp, order: .reverse)]
+        )
+
+        let entries = try context.fetch(descriptor)
+        guard entries.count > maxEntries else { return }
+
+        for entry in entries.dropFirst(maxEntries) {
+            context.delete(entry)
+        }
+    }
+
+    private func deleteStoredEntries(user: String, context: ModelContext) throws {
+        let targetUser = user
+        let descriptor = FetchDescriptor<StoredAuditLogEntry>(
+            predicate: #Predicate { $0.user == targetUser }
+        )
+
+        try context.fetch(descriptor).forEach { context.delete($0) }
     }
 
     // MARK: - Summaries
@@ -637,6 +843,11 @@ final class AuditLogStore {
         Categoría: \(category)
         Activo: \(payment.isActive ? "Sí" : "No")
         """
+    }
+
+    private func signedAmountString(_ value: Double) -> String {
+        let absolute = amountString(abs(value))
+        return value >= 0 ? "+\(absolute)" : "-\(absolute)"
     }
 
     private func amountString(_ value: Double) -> String {

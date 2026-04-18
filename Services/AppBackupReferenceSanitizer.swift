@@ -54,11 +54,16 @@ struct AppBackupReferenceSanitizer {
                 amount: payment.amount,
                 dueDay: payment.dueDay,
                 category: payment.category,
+                customCategoryName: payment.customCategoryName,
                 isActive: payment.isActive,
                 lastPaidMonth: shouldKeepPaidState ? payment.lastPaidMonth : nil,
                 lastPaidYear: shouldKeepPaidState ? payment.lastPaidYear : nil,
                 lastPaidExpenseId: shouldKeepPaidState ? validExpenseId : nil
             )
+        }
+
+        let sanitizedAccountBalanceAdjustments = snapshot.accountBalanceAdjustments.filter {
+            validAccountIds.contains($0.moneyAccountId)
         }
 
         return AppBackupSnapshot(
@@ -71,6 +76,7 @@ struct AppBackupReferenceSanitizer {
             recurringPayments: sanitizedRecurringPayments,
             moneyAccounts: snapshot.moneyAccounts,
             accountTransfers: snapshot.accountTransfers,
+            accountBalanceAdjustments: sanitizedAccountBalanceAdjustments,
             monthlyBudget: snapshot.monthlyBudget,
             notificationPreferences: snapshot.notificationPreferences,
             expenseCustomCategories: snapshot.expenseCustomCategories,

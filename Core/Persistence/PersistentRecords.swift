@@ -147,6 +147,8 @@ final class StoredMoneyAccount {
     var kindRawValue: String
     var customCategoryName: String?
     var includeInAvailableTotal: Bool
+    var openingBalance: Double?
+    var openingBalanceDate: Date?
 
     init(account: MoneyAccount, user: String) {
         self.id = account.id
@@ -156,6 +158,8 @@ final class StoredMoneyAccount {
         self.kindRawValue = account.kind.rawValue
         self.customCategoryName = account.customCategoryName
         self.includeInAvailableTotal = account.includeInAvailableTotal
+        self.openingBalance = account.openingBalance
+        self.openingBalanceDate = account.openingBalanceDate
     }
 
     func toMoneyAccount() -> MoneyAccount {
@@ -165,7 +169,9 @@ final class StoredMoneyAccount {
             balance: balance,
             kind: MoneyAccountKind(rawValue: kindRawValue) ?? .other,
             customCategoryName: customCategoryName,
-            includeInAvailableTotal: includeInAvailableTotal
+            includeInAvailableTotal: includeInAvailableTotal,
+            openingBalance: openingBalance,
+            openingBalanceDate: openingBalanceDate
         )
     }
 }
@@ -197,6 +203,94 @@ final class StoredAccountTransfer {
             toAccountId: toAccountId,
             amount: amount,
             date: date,
+            note: note
+        )
+    }
+}
+
+@Model
+final class StoredAccountBalanceAdjustment {
+    @Attribute(.unique) var id: UUID
+    var user: String
+    var moneyAccountId: UUID
+    var amount: Double
+    var date: Date
+    var reason: String?
+    var createdAt: Date
+
+    init(adjustment: AccountBalanceAdjustment, user: String) {
+        self.id = adjustment.id
+        self.user = user
+        self.moneyAccountId = adjustment.moneyAccountId
+        self.amount = adjustment.amount
+        self.date = adjustment.date
+        self.reason = adjustment.reason
+        self.createdAt = adjustment.createdAt
+    }
+
+    func toAccountBalanceAdjustment() -> AccountBalanceAdjustment {
+        AccountBalanceAdjustment(
+            id: id,
+            moneyAccountId: moneyAccountId,
+            amount: amount,
+            date: date,
+            reason: reason,
+            createdAt: createdAt
+        )
+    }
+}
+
+@Model
+final class StoredAuditLogEntry {
+    @Attribute(.unique) var id: UUID
+    var user: String
+    var timestamp: Date
+    var entityRawValue: String
+    var entityId: UUID?
+    var actionRawValue: String
+    var title: String
+    var detail: String
+    var originalValue: String?
+    var originalTimestamp: Date?
+    var previousValue: String?
+    var previousTimestamp: Date?
+    var newValue: String?
+    var newTimestamp: Date?
+    var note: String?
+
+    init(entry: AuditLogEntry, user: String) {
+        self.id = entry.id
+        self.user = user
+        self.timestamp = entry.timestamp
+        self.entityRawValue = entry.entity.rawValue
+        self.entityId = entry.entityId
+        self.actionRawValue = entry.action.rawValue
+        self.title = entry.title
+        self.detail = entry.detail
+        self.originalValue = entry.originalValue
+        self.originalTimestamp = entry.originalTimestamp
+        self.previousValue = entry.previousValue
+        self.previousTimestamp = entry.previousTimestamp
+        self.newValue = entry.newValue
+        self.newTimestamp = entry.newTimestamp
+        self.note = entry.note
+    }
+
+    func toAuditLogEntry() -> AuditLogEntry {
+        AuditLogEntry(
+            id: id,
+            timestamp: timestamp,
+            entity: AuditLogEntity(rawValue: entityRawValue) ?? .expense,
+            entityId: entityId,
+            action: AuditLogAction(rawValue: actionRawValue) ?? .updated,
+            title: title,
+            detail: detail,
+            originalValue: originalValue,
+            originalTimestamp: originalTimestamp,
+            previousValue: previousValue,
+            previousTimestamp: previousTimestamp,
+            newValue: newValue,
+            newTimestamp: newTimestamp,
             note: note
         )
     }

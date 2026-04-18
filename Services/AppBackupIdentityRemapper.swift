@@ -9,6 +9,7 @@ struct AppBackupIdentityRemapper {
         let incomeIDMap = makeMap(for: snapshot.incomes.map(\.id))
         let recurringPaymentIDMap = makeMap(for: snapshot.recurringPayments.map(\.id))
         let transferIDMap = makeMap(for: snapshot.accountTransfers.map(\.id))
+        let adjustmentIDMap = makeMap(for: snapshot.accountBalanceAdjustments.map(\.id))
 
         let remappedMoneyAccounts = snapshot.moneyAccounts.map { account in
             MoneyAccount(
@@ -17,7 +18,9 @@ struct AppBackupIdentityRemapper {
                 balance: account.balance,
                 kind: account.kind,
                 customCategoryName: account.customCategoryName,
-                includeInAvailableTotal: account.includeInAvailableTotal
+                includeInAvailableTotal: account.includeInAvailableTotal,
+                openingBalance: account.openingBalance,
+                openingBalanceDate: account.openingBalanceDate
             )
         }
 
@@ -65,6 +68,7 @@ struct AppBackupIdentityRemapper {
                 amount: payment.amount,
                 dueDay: payment.dueDay,
                 category: payment.category,
+                customCategoryName: payment.customCategoryName,
                 isActive: payment.isActive,
                 lastPaidMonth: payment.lastPaidMonth,
                 lastPaidYear: payment.lastPaidYear,
@@ -89,6 +93,49 @@ struct AppBackupIdentityRemapper {
             )
         }
 
+        let remappedAccountBalanceAdjustments: [AccountBalanceAdjustment] = snapshot.accountBalanceAdjustments.compactMap { adjustment in
+            guard let remappedAccountId = moneyAccountIDMap[adjustment.moneyAccountId] else {
+                return nil
+            }
+
+            return AccountBalanceAdjustment(
+                id: adjustmentIDMap[adjustment.id] ?? adjustment.id,
+                moneyAccountId: remappedAccountId,
+                amount: adjustment.amount,
+                date: adjustment.date,
+                reason: adjustment.reason,
+                createdAt: adjustment.createdAt
+            )
+        }
+
+        let remappedAuditLogEntries = snapshot.auditLogEntries.map { entry in
+            AuditLogEntry(
+                id: entry.id,
+                timestamp: entry.timestamp,
+                entity: entry.entity,
+                entityId: remappedAuditEntityId(
+                    entry.entityId,
+                    entity: entry.entity,
+                    moneyAccountIDMap: moneyAccountIDMap,
+                    debtIDMap: debtIDMap,
+                    expenseIDMap: expenseIDMap,
+                    incomeIDMap: incomeIDMap,
+                    recurringPaymentIDMap: recurringPaymentIDMap,
+                    transferIDMap: transferIDMap
+                ),
+                action: entry.action,
+                title: entry.title,
+                detail: entry.detail,
+                originalValue: entry.originalValue,
+                originalTimestamp: entry.originalTimestamp,
+                previousValue: entry.previousValue,
+                previousTimestamp: entry.previousTimestamp,
+                newValue: entry.newValue,
+                newTimestamp: entry.newTimestamp,
+                note: entry.note
+            )
+        }
+
         return AppBackupSnapshot(
             version: snapshot.version,
             exportedAt: snapshot.exportedAt,
@@ -99,14 +146,47 @@ struct AppBackupIdentityRemapper {
             recurringPayments: remappedRecurringPayments,
             moneyAccounts: remappedMoneyAccounts,
             accountTransfers: remappedTransfers,
+            accountBalanceAdjustments: remappedAccountBalanceAdjustments,
             monthlyBudget: snapshot.monthlyBudget,
             notificationPreferences: snapshot.notificationPreferences,
             expenseCustomCategories: snapshot.expenseCustomCategories,
             incomeCustomCategories: snapshot.incomeCustomCategories,
             moneyAccountCustomCategories: snapshot.moneyAccountCustomCategories,
+            recurringPaymentCustomCategories: snapshot.recurringPaymentCustomCategories,
+            auditLogEntries: remappedAuditLogEntries,
             profileImageData: snapshot.profileImageData,
             profileDisplayName: snapshot.profileDisplayName
         )
+    }
+
+    private func remappedAuditEntityId(
+        _ id: UUID?,
+        entity: AuditLogEntity,
+        moneyAccountIDMap: [UUID: UUID],
+        debtIDMap: [UUID: UUID],
+        expenseIDMap: [UUID: UUID],
+        incomeIDMap: [UUID: UUID],
+        recurringPaymentIDMap: [UUID: UUID],
+        transferIDMap: [UUID: UUID]
+    ) -> UUID? {
+        guard let id else { return nil }
+
+        switch entity {
+        case .expense:
+            return expenseIDMap[id] ?? id
+        case .income:
+            return incomeIDMap[id] ?? id
+        case .transfer:
+            return transferIDMap[id] ?? id
+        case .moneyAccount:
+            return moneyAccountIDMap[id] ?? id
+        case .debt:
+            return debtIDMap[id] ?? id
+        case .recurringPayment:
+            return recurringPaymentIDMap[id] ?? id
+        case .budget:
+            return id
+        }
     }
 
     private func makeMap(for ids: [UUID]) -> [UUID: UUID] {

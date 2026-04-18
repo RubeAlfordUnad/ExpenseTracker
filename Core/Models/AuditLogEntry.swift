@@ -71,6 +71,7 @@ struct AuditLogEntry: Identifiable, Codable, Equatable {
     let id: UUID
     let timestamp: Date
     let entity: AuditLogEntity
+    let entityId: UUID?
     let action: AuditLogAction
     let title: String
     let detail: String
@@ -90,6 +91,7 @@ struct AuditLogEntry: Identifiable, Codable, Equatable {
         id: UUID = UUID(),
         timestamp: Date = Date(),
         entity: AuditLogEntity,
+        entityId: UUID? = nil,
         action: AuditLogAction,
         title: String,
         detail: String,
@@ -104,6 +106,7 @@ struct AuditLogEntry: Identifiable, Codable, Equatable {
         self.id = id
         self.timestamp = timestamp
         self.entity = entity
+        self.entityId = entityId
         self.action = action
         self.title = title
         self.detail = detail
