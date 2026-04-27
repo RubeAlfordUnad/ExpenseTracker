@@ -45,10 +45,11 @@ struct DebtsView: View {
     @State private var selectedFilter: DebtListFilter = .active
 
     @State private var showEditor = false
+    @State private var showCalendar = false
     @State private var editingDebt: Debt?
     @State private var debtPendingDelete: Debt?
     @State private var debtSelectedForExpense: Debt?
-
+    
     @State private var debtPendingPaidConfirmation: Debt?
     @State private var paidConfirmationOriginalDebt: Debt?
 
@@ -124,6 +125,12 @@ struct DebtsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        showCalendar = true
+                    } label: {
+                        Image(systemName: "calendar")
+                    }
+
                     Menu {
                         Button {
                             prepareExport(.csv)
@@ -159,6 +166,10 @@ struct DebtsView: View {
                 }
                 .environmentObject(auth)
                 .environmentObject(settings)
+            }
+            .sheet(isPresented: $showCalendar) {
+                DebtCalendarView(debts: debts)
+                    .environmentObject(settings)
             }
             .sheet(item: $debtSelectedForExpense) { debt in
                 AddExpenseView(
