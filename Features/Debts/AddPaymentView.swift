@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct AddPaymentView: View {
-    
+
     @EnvironmentObject var auth: AuthManager
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var settings: AppSettings
@@ -11,16 +11,19 @@ struct AddPaymentView: View {
     @State private var payment = ""
     @State private var selectedMoneyAccountId: UUID?
     @State private var showValidationAlert = false
+    @State private var showFinalPaymentAlert = false
 
     private let moneyAccounts: [MoneyAccount]
     let onApplyPayment: (Double, UUID) -> Void
-    
+    let onMarkDebtAsPaid: (Debt) -> Void
+
     private let moneyAccountFundsGuard = MoneyAccountFundsGuard()
 
     init(
         debt: Binding<Debt>,
         moneyAccounts: [MoneyAccount],
-        onApplyPayment: @escaping (Double, UUID) -> Void
+        onApplyPayment: @escaping (Double, UUID) -> Void,
+        onMarkDebtAsPaid: @escaping (Debt) -> Void
     ) {
         self._debt = debt
 
@@ -30,6 +33,7 @@ struct AddPaymentView: View {
 
         self.moneyAccounts = sortedAccounts
         self.onApplyPayment = onApplyPayment
+        self.onMarkDebtAsPaid = onMarkDebtAsPaid
         _selectedMoneyAccountId = State(initialValue: sortedAccounts.first?.id)
     }
 
@@ -43,19 +47,19 @@ struct AddPaymentView: View {
     private var accountValidationMessage: String? {
         if moneyAccounts.isEmpty {
             return settings.language == .spanish
-                ? "Debes crear al menos una cuenta de dinero antes de registrar este pago."
-                : "You need to create at least one money account before registering this payment."
+            ? "Debes crear al menos una cuenta de dinero antes de registrar este pago."
+            : "You need to create at least one money account before registering this payment."
         }
 
         if selectedMoneyAccountId == nil {
             return settings.language == .spanish
-                ? "Selecciona la cuenta desde donde saldrá este pago."
-                : "Select the account this payment will come from."
+            ? "Selecciona la cuenta desde donde saldrá este pago."
+            : "Select the account this payment will come from."
         }
 
         return nil
     }
-    
+
     private var moneyAccountLimitImpact: MoneyAccountFundsImpact? {
         guard let parsedAmount = FormValidator.normalizedPositiveAmount(from: payment) else {
             return nil
@@ -93,33 +97,73 @@ struct AddPaymentView: View {
 
         if accountValidationMessage != nil {
             return settings.language == .spanish
-                ? "Cuenta requerida"
-                : "Account required"
+            ? "Cuenta requerida"
+            : "Account required"
         }
 
         if balanceValidationMessage != nil {
             return settings.language == .spanish
-                ? "Fondos insuficientes"
-                : "Insufficient funds"
+            ? "Fondos insuficientes"
+            : "Insufficient funds"
         }
 
         return settings.language == .spanish
-            ? "Validación pendiente"
-            : "Pending validation"
+        ? "Validación pendiente"
+        : "Pending validation"
+    }
+
+    private var screenTitle: String {
+        if debt.isLoan {
+            return settings.language == .spanish ? "Pagar préstamo" : "Pay loan"
+        }
+
+        return settings.t("debts.registerPayment")
+    }
+
+    private var pendingBalanceText: String {
+        if debt.isLoan {
+            return settings.language == .spanish
+            ? "Saldo pendiente"
+            : "Remaining balance"
+        }
+
+        return settings.t("debts.balancePending")
+    }
+
+    private var paymentHelpText: String {
+        if debt.isLoan {
+            return settings.language == .spanish
+            ? "Al aplicar el pago, bajará el saldo del préstamo, se descontará de la cuenta seleccionada y se actualizarán las cuotas pagadas."
+            : "When applied, this payment will reduce the loan balance, deduct the selected account and update paid installments."
+        }
+
+        return settings.language == .spanish
+        ? "Al aplicar el pago, bajará la deuda de la tarjeta y también se descontará el saldo de la cuenta seleccionada."
+        : "When you apply this payment, the card debt will go down and the selected account balance will also be deducted."
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    Text("\(settings.t("debts.balancePending")): \(settings.formatCurrency(debt.remainingDebt, decimals: 2))")
+                    Text("\(pendingBalanceText): \(settings.formatCurrency(debt.remainingDebt, decimals: 2))")
                         .fontWeight(.semibold)
+
+                    if debt.isLoan {
+                        loanProgressPreview
+                    }
 
                     MoneyTextField(
                         title: settings.t("debts.paymentAmount"),
                         text: $payment,
                         accessibilityIdentifier: "debt.payment.field"
                     )
+
+                    if let preview = paymentPreviewText {
+                        Text(preview)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Section(
@@ -128,8 +172,8 @@ struct AddPaymentView: View {
                     if moneyAccounts.isEmpty {
                         Text(
                             settings.language == .spanish
-                                ? "No tienes cuentas disponibles. Crea una cuenta de dinero primero."
-                                : "You do not have any available accounts. Create a money account first."
+                            ? "No tienes cuentas disponibles. Crea una cuenta de dinero primero."
+                            : "You do not have any available accounts. Create a money account first."
                         )
                         .font(.footnote)
                         .foregroundColor(.secondary)
@@ -148,13 +192,9 @@ struct AddPaymentView: View {
                         }
                         .accessibilityIdentifier("debt.payment.account.picker")
 
-                        Text(
-                            settings.language == .spanish
-                                ? "Al aplicar el pago, bajará la deuda de la tarjeta y también se descontará el saldo de la cuenta seleccionada."
-                                : "When you apply this payment, the card debt will go down and the selected account balance will also be deducted."
-                        )
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
+                        Text(paymentHelpText)
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -166,7 +206,7 @@ struct AddPaymentView: View {
                     }
                 }
             }
-            .navigationTitle(settings.t("debts.registerPayment"))
+            .navigationTitle(screenTitle)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(settings.t("common.cancel")) {
@@ -189,7 +229,82 @@ struct AddPaymentView: View {
             } message: {
                 Text(activeValidationMessage ?? "")
             }
+            .alert(
+                settings.language == .spanish ? "Deuda pagada" : "Debt paid",
+                isPresented: $showFinalPaymentAlert
+            ) {
+                Button(
+                    settings.language == .spanish ? "Mover a pagadas" : "Move to paid"
+                ) {
+                    var paidDebt = debt
+                    paidDebt.markAsPaid()
+                    onMarkDebtAsPaid(paidDebt)
+                    dismiss()
+                }
+
+                Button(
+                    settings.language == .spanish ? "Mantener activa" : "Keep active",
+                    role: .cancel
+                ) {
+                    dismiss()
+                }
+            } message: {
+                Text(
+                    settings.language == .spanish
+                    ? "Este fue el último pago de \"\(debt.cardName)\". ¿Quieres mover esta deuda a la sección de pagadas y quitar su pago fijo vinculado?"
+                    : "This was the final payment for \"\(debt.cardName)\". Do you want to move this debt to paid and remove its linked recurring payment?"
+                )
+            }
         }
+    }
+
+    private var loanProgressPreview: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(settings.language == .spanish ? "Cuotas pagadas" : "Paid installments")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Text(installmentText)
+                    .font(.caption.bold())
+            }
+
+            ProgressView(value: debt.progress)
+                .tint(BrandPalette.primary)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var paymentPreviewText: String? {
+        guard let value = FormValidator.normalizedPositiveAmount(from: payment) else {
+            return nil
+        }
+
+        let remainingAfterPayment = max(debt.remainingDebt - value, 0)
+
+        if debt.isLoan {
+            if settings.language == .spanish {
+                return "Después de este pago quedaría pendiente \(settings.secureCurrency(remainingAfterPayment))."
+            }
+
+            return "After this payment, \(settings.secureCurrency(remainingAfterPayment)) would remain."
+        }
+
+        if settings.language == .spanish {
+            return "Después de este pago la deuda de la tarjeta quedaría en \(settings.secureCurrency(remainingAfterPayment))."
+        }
+
+        return "After this payment, the card debt would be \(settings.secureCurrency(remainingAfterPayment))."
+    }
+
+    private var installmentText: String {
+        guard let installmentCount = debt.installmentCount else {
+            return settings.language == .spanish ? "Sin cuotas" : "No installments"
+        }
+
+        return "\(debt.paymentsMade)/\(installmentCount)"
     }
 
     private func applyPayment() {
@@ -210,10 +325,11 @@ struct AddPaymentView: View {
             return
         }
 
-        debt.remainingDebt = max(debt.remainingDebt - value, 0)
+        let previousDebtAmount = debt.remainingDebt
+        debt.applyPayment(value)
+
         onApplyPayment(value, selectedMoneyAccountId)
-        
-        let previousDebtAmount = debt.remainingDebt + value
+
         let accountName = moneyAccounts.first(where: { $0.id == selectedMoneyAccountId })?.name ?? "Unknown"
 
         AuditLogStore.shared.logDebtPayment(
@@ -224,7 +340,11 @@ struct AddPaymentView: View {
             remainingDebtAfter: debt.remainingDebt,
             user: auth.currentUser
         )
-        
-        dismiss()
+
+        if debt.isFullyPaid {
+            showFinalPaymentAlert = true
+        } else {
+            dismiss()
+        }
     }
 }
