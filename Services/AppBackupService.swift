@@ -158,7 +158,7 @@ enum AppBackupError: LocalizedError {
 }
 
 final class AppBackupService {
-    private let currentVersion = 6
+    private let currentVersion = 7
     private let maximumBackupBytes = 12 * 1024 * 1024
     private let maximumRecordsPerCollection = 100_000
     private let maximumSourceUserLength = 80
@@ -368,7 +368,7 @@ final class AppBackupService {
             expenseCustomCategories: expenseCustomCategories,
             incomeCustomCategories: incomeCustomCategories,
             moneyAccountCustomCategories: moneyAccountCustomCategories,
-            recurringPaymentCustomCategories: snapshot.recurringPaymentCustomCategories,
+            recurringPaymentCustomCategories: sanitizedRecurringPaymentCustomCategories(sanitizedFinancialSnapshot.recurringPaymentCustomCategories),
             auditLogEntries: auditLogEntries,
             profileImageData: profileImageData,
             profileDisplayName: profileDisplayName
@@ -431,6 +431,53 @@ final class AppBackupService {
                   debt.remainingDebt >= 0,
                   debt.remainingDebt <= debt.totalLimit else {
                 throw AppBackupError.invalidSnapshot
+            }
+
+            switch debt.kind {
+            case .creditCard:
+                guard debt.managementFee.isFinite,
+                      debt.managementFee >= 0,
+                      debt.minimumPaymentRate.isFinite,
+                      debt.minimumPaymentRate >= 0,
+                      debt.minimumPaymentRate <= 1 else {
+                    throw AppBackupError.invalidSnapshot
+                }
+
+                if let minimumPaymentFixedAmount = debt.minimumPaymentFixedAmount {
+                    guard minimumPaymentFixedAmount.isFinite,
+                          minimumPaymentFixedAmount >= 0 else {
+                        throw AppBackupError.invalidSnapshot
+                    }
+                }
+
+                if let statementClosingDay = debt.statementClosingDay,
+                   !(1...31).contains(statementClosingDay) {
+                    throw AppBackupError.invalidSnapshot
+                }
+
+                if let minimumPaymentDueDay = debt.minimumPaymentDueDay,
+                   !(1...31).contains(minimumPaymentDueDay) {
+                    throw AppBackupError.invalidSnapshot
+                }
+
+            case .loan:
+                guard let monthlyPayment = debt.monthlyPayment,
+                      monthlyPayment.isFinite,
+                      monthlyPayment >= 0 else {
+                    throw AppBackupError.invalidSnapshot
+                }
+
+                if let installmentCount = debt.installmentCount {
+                    guard installmentCount >= 0,
+                          debt.paymentsMade >= 0,
+                          debt.paymentsMade <= installmentCount else {
+                        throw AppBackupError.invalidSnapshot
+                    }
+                } else {
+                    guard debt.paymentsMade >= 0 else {
+                        throw AppBackupError.invalidSnapshot
+                    }
+                }
             }
         }
     }

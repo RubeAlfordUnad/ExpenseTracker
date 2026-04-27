@@ -30,7 +30,19 @@ struct AppBackupIdentityRemapper {
                 cardName: debt.cardName,
                 brand: debt.brand,
                 totalLimit: debt.totalLimit,
-                remainingDebt: debt.remainingDebt
+                remainingDebt: debt.remainingDebt,
+                kind: debt.kind,
+                status: debt.status,
+                monthlyPayment: debt.monthlyPayment,
+                installmentCount: debt.installmentCount,
+                paymentsMade: debt.paymentsMade,
+                firstPaymentDate: debt.firstPaymentDate,
+                linkedRecurringPaymentId: debt.linkedRecurringPaymentId.flatMap { recurringPaymentIDMap[$0] },
+                managementFee: debt.managementFee,
+                minimumPaymentRate: debt.minimumPaymentRate,
+                minimumPaymentFixedAmount: debt.minimumPaymentFixedAmount,
+                statementClosingDay: debt.statementClosingDay,
+                minimumPaymentDueDay: debt.minimumPaymentDueDay
             )
         }
 
@@ -72,7 +84,8 @@ struct AppBackupIdentityRemapper {
                 isActive: payment.isActive,
                 lastPaidMonth: payment.lastPaidMonth,
                 lastPaidYear: payment.lastPaidYear,
-                lastPaidExpenseId: payment.lastPaidExpenseId.flatMap { expenseIDMap[$0] }
+                lastPaidExpenseId: payment.lastPaidExpenseId.flatMap { expenseIDMap[$0] },
+                linkedDebtId: payment.linkedDebtId.flatMap { debtIDMap[$0] }
             )
         }
 
