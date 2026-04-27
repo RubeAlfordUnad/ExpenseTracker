@@ -13,6 +13,7 @@ struct RecurringPayment: Identifiable, Codable {
     var lastPaidMonth: Int?
     var lastPaidYear: Int?
     var lastPaidExpenseId: UUID?
+    var linkedDebtId: UUID?
 
     init(
         id: UUID = UUID(),
@@ -24,7 +25,8 @@ struct RecurringPayment: Identifiable, Codable {
         isActive: Bool,
         lastPaidMonth: Int? = nil,
         lastPaidYear: Int? = nil,
-        lastPaidExpenseId: UUID? = nil
+        lastPaidExpenseId: UUID? = nil,
+        linkedDebtId: UUID? = nil
     ) {
         self.id = id
         self.title = title
@@ -36,6 +38,7 @@ struct RecurringPayment: Identifiable, Codable {
         self.lastPaidMonth = lastPaidMonth
         self.lastPaidYear = lastPaidYear
         self.lastPaidExpenseId = lastPaidExpenseId
+        self.linkedDebtId = linkedDebtId
     }
 
     var normalizedCustomCategoryName: String? {

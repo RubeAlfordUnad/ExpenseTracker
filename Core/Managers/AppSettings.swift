@@ -75,7 +75,7 @@ final class AppSettings: ObservableObject {
         AppCurrency.allCases.filter { $0 != effectiveCurrency }
     }
     
-    func formatCurrency(_ value: Double, decimals: Int = 0) -> String {
+    func formatCurrency(_ value: Double, decimals: Int = 2) -> String {
         value.asCurrency(
             code: effectiveCurrency.rawValue,
             locale: appLocale,
@@ -84,7 +84,7 @@ final class AppSettings: ObservableObject {
         )
     }
 
-    func formatCurrency(_ value: Double, currency: AppCurrency, decimals: Int = 0) -> String {
+    func formatCurrency(_ value: Double, currency: AppCurrency, decimals: Int = 2) -> String {
         value.asCurrency(
             code: currency.rawValue,
             locale: appLocale,
@@ -92,7 +92,7 @@ final class AppSettings: ObservableObject {
             maximumFractionDigits: decimals
         )
     }
-
+    
     func monthYearString(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = appLocale

@@ -33,13 +33,13 @@ extension AppSettings {
         "••••"
     }
 
-    func secureCurrency(_ value: Double, decimals: Int = 0) -> String {
+    func secureCurrency(_ value: Double, decimals: Int = 2) -> String {
         hideSensitiveAmounts
         ? hiddenAmountPlaceholder
         : formatCurrency(value, decimals: decimals)
     }
 
-    func secureCurrency(_ value: Double, currency: AppCurrency, decimals: Int = 0) -> String {
+    func secureCurrency(_ value: Double, currency: AppCurrency, decimals: Int = 2) -> String {
         hideSensitiveAmounts
         ? hiddenAmountPlaceholder
         : formatCurrency(value, currency: currency, decimals: decimals)

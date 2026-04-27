@@ -73,6 +73,18 @@ final class StoredDebt {
     var brandRawValue: String
     var totalLimit: Double
     var remainingDebt: Double
+    var kindRawValue: String?
+    var statusRawValue: String?
+    var monthlyPayment: Double?
+    var installmentCount: Int?
+    var paymentsMade: Int?
+    var firstPaymentDate: Date?
+    var linkedRecurringPaymentId: UUID?
+    var managementFee: Double?
+    var minimumPaymentRate: Double?
+    var minimumPaymentFixedAmount: Double?
+    var statementClosingDay: Int?
+    var minimumPaymentDueDay: Int?
 
     init(debt: Debt, user: String) {
         self.id = debt.id
@@ -81,6 +93,18 @@ final class StoredDebt {
         self.brandRawValue = debt.brand.rawValue
         self.totalLimit = debt.totalLimit
         self.remainingDebt = debt.remainingDebt
+        self.kindRawValue = debt.kind.rawValue
+        self.statusRawValue = debt.status.rawValue
+        self.monthlyPayment = debt.monthlyPayment
+        self.installmentCount = debt.installmentCount
+        self.paymentsMade = debt.paymentsMade
+        self.firstPaymentDate = debt.firstPaymentDate
+        self.linkedRecurringPaymentId = debt.linkedRecurringPaymentId
+        self.managementFee = debt.managementFee
+        self.minimumPaymentRate = debt.minimumPaymentRate
+        self.minimumPaymentFixedAmount = debt.minimumPaymentFixedAmount
+        self.statementClosingDay = debt.statementClosingDay
+        self.minimumPaymentDueDay = debt.minimumPaymentDueDay
     }
 
     func toDebt() -> Debt {
@@ -89,7 +113,19 @@ final class StoredDebt {
             cardName: cardName,
             brand: CardBrand(rawValue: brandRawValue) ?? .other,
             totalLimit: totalLimit,
-            remainingDebt: remainingDebt
+            remainingDebt: remainingDebt,
+            kind: DebtKind(rawValue: kindRawValue ?? "") ?? .creditCard,
+            status: DebtStatus(rawValue: statusRawValue ?? "") ?? .active,
+            monthlyPayment: monthlyPayment,
+            installmentCount: installmentCount,
+            paymentsMade: paymentsMade ?? 0,
+            firstPaymentDate: firstPaymentDate,
+            linkedRecurringPaymentId: linkedRecurringPaymentId,
+            managementFee: managementFee ?? 0,
+            minimumPaymentRate: minimumPaymentRate ?? 0.05,
+            minimumPaymentFixedAmount: minimumPaymentFixedAmount,
+            statementClosingDay: statementClosingDay,
+            minimumPaymentDueDay: minimumPaymentDueDay
         )
     }
 }
@@ -107,6 +143,7 @@ final class StoredRecurringPayment {
     var lastPaidMonth: Int?
     var lastPaidYear: Int?
     var lastPaidExpenseId: UUID?
+    var linkedDebtId: UUID?
 
     init(payment: RecurringPayment, user: String) {
         self.id = payment.id
@@ -120,6 +157,7 @@ final class StoredRecurringPayment {
         self.lastPaidMonth = payment.lastPaidMonth
         self.lastPaidYear = payment.lastPaidYear
         self.lastPaidExpenseId = payment.lastPaidExpenseId
+        self.linkedDebtId = payment.linkedDebtId
     }
 
     func toRecurringPayment() -> RecurringPayment {
@@ -133,7 +171,8 @@ final class StoredRecurringPayment {
             isActive: isActive,
             lastPaidMonth: lastPaidMonth,
             lastPaidYear: lastPaidYear,
-            lastPaidExpenseId: lastPaidExpenseId
+            lastPaidExpenseId: lastPaidExpenseId,
+            linkedDebtId: linkedDebtId
         )
     }
 }
