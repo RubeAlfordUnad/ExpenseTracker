@@ -144,7 +144,14 @@ struct RecurringPaymentCard: View {
 
                 Spacer()
 
-                if !payment.isActive {
+                if payment.linkedDebtId != nil {
+                    Label(
+                        settings.language == .spanish ? "Vinculado a préstamo" : "Linked to loan",
+                        systemImage: "link.circle.fill"
+                    )
+                    .font(.caption.bold())
+                    .foregroundColor(.orange)
+                } else if !payment.isActive {
                     Label(
                         settings.language == .spanish ? "Pausado" : "Paused",
                         systemImage: "pause.circle.fill"

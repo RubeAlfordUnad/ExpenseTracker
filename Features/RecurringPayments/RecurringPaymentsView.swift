@@ -14,6 +14,8 @@ struct RecurringPaymentsView: View {
     @State private var editingPayment: RecurringPayment?
     @State private var paymentPendingDelete: RecurringPayment?
     @State private var paymentPendingFundingSelection: RecurringPayment?
+    @State private var linkedPaymentPendingArchiveRemoval: RecurringPayment?
+    @State private var loanPendingPaidConfirmation: Debt?
     @State private var showMissingAccountAlert = false
     @State private var selectedFilter: PaymentFilter = .all
 
@@ -87,6 +89,8 @@ struct RecurringPaymentsView: View {
             return payments.filter { isLate($0) }.sorted(by: sortPayments)
         }
     }
+    
+    private let recurringLoanSync = RecurringLoanPaymentSync()
 
     private var isFundingSheetPresented: Binding<Bool> {
         Binding(
@@ -280,6 +284,34 @@ struct RecurringPaymentsView: View {
                     EmptyView()
                 }
             }
+            
+            .alert(
+                settings.language == .spanish ? "Préstamo pagado" : "Loan paid",
+                isPresented: Binding(
+                    get: { loanPendingPaidConfirmation != nil },
+                    set: { newValue in
+                        if !newValue {
+                            loanPendingPaidConfirmation = nil
+                            linkedPaymentPendingArchiveRemoval = nil
+                        }
+                    }
+                )
+            ) {
+                Button(settings.language == .spanish ? "Mover a pagadas" : "Move to paid") {
+                    confirmArchiveLinkedLoan()
+                }
+
+                Button(settings.language == .spanish ? "Mantener activa" : "Keep active", role: .cancel) {
+                    keepLinkedLoanActive()
+                }
+            } message: {
+                Text(
+                    settings.language == .spanish
+                    ? "\"\(loanPendingPaidConfirmation?.cardName ?? "")\" quedó con saldo pendiente en cero. ¿Quieres moverlo a Deudas pagadas y eliminar su pago fijo vinculado?"
+                    : "\"\(loanPendingPaidConfirmation?.cardName ?? "")\" now has a zero remaining balance. Do you want to move it to paid debts and remove its linked recurring payment?"
+                )
+            }
+            
             .alert(
                 settings.language == .spanish ? "Sin cuentas disponibles" : "No accounts available",
                 isPresented: $showMissingAccountAlert
@@ -538,17 +570,29 @@ struct RecurringPaymentsView: View {
         }
 
         let savedPayment = payments[index]
-        
+
         let sourceAccountName = moneyAccounts.first(where: { $0.id == moneyAccountId })?.name ?? "Unknown"
-        AuditLogStore.shared.logRecurringPaymentMarkedPaid(savedPayment, fromAccountName: sourceAccountName, user: auth.currentUser)
-        
+
+        AuditLogStore.shared.logRecurringPaymentMarkedPaid(
+            savedPayment,
+            fromAccountName: sourceAccountName,
+            user: auth.currentUser
+        )
+
         persist()
+
         onRegisterPaidRecurringExpense(savedPayment, moneyAccountId, generatedExpenseId)
+
+        syncLinkedLoanAfterMarkingPaid(
+            savedPayment,
+            fromAccountName: sourceAccountName
+        )
     }
 
     private func unmarkPaymentStatus(for id: UUID) {
         guard let index = payments.firstIndex(where: { $0.id == id }) else { return }
 
+        let paymentBeforeUnmarking = payments[index]
         let generatedExpenseId = payments[index].lastPaidExpenseId
 
         withAnimation(.spring()) {
@@ -556,14 +600,19 @@ struct RecurringPaymentsView: View {
             payments[index].lastPaidYear = nil
             payments[index].lastPaidExpenseId = nil
         }
-        
-        let previousPayment = payments[index]
-        AuditLogStore.shared.logRecurringPaymentMarkedUnpaid(previousPayment, user: auth.currentUser)
+
+        let updatedPayment = payments[index]
+
+        AuditLogStore.shared.logRecurringPaymentMarkedUnpaid(
+            updatedPayment,
+            user: auth.currentUser
+        )
 
         persist()
 
         if let generatedExpenseId {
             onDeletePaidRecurringExpense(generatedExpenseId)
+            syncLinkedLoanAfterUnmarkingPaid(paymentBeforeUnmarking)
         }
     }
 
@@ -586,6 +635,139 @@ struct RecurringPaymentsView: View {
 
         AuditLogStore.shared.logRecurringPaymentDeleted(payment, user: auth.currentUser)
         persist()
+    }
+    
+    private func syncLinkedLoanAfterMarkingPaid(
+        _ payment: RecurringPayment,
+        fromAccountName: String
+    ) {
+        var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+
+        let result = recurringLoanSync.applyRecurringPayment(
+            payment,
+            debts: &debts
+        )
+
+        guard let previousDebt = result.previousDebt,
+              let updatedDebt = result.updatedDebt else {
+            return
+        }
+
+        DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
+        AuditLogStore.shared.logDebtPayment(
+            cardName: updatedDebt.cardName,
+            amount: payment.amount,
+            fromAccountName: fromAccountName,
+            remainingDebtBefore: previousDebt.remainingDebt,
+            remainingDebtAfter: updatedDebt.remainingDebt,
+            user: auth.currentUser
+        )
+
+        AuditLogStore.shared.logDebtUpdated(
+            from: previousDebt,
+            to: updatedDebt,
+            user: auth.currentUser,
+            note: settings.language == .spanish
+            ? "Actualizado automáticamente desde un pago fijo vinculado."
+            : "Automatically updated from a linked recurring payment."
+        )
+
+        guard result.shouldAskToArchivePaidLoan else {
+            return
+        }
+
+        loanPendingPaidConfirmation = updatedDebt
+        linkedPaymentPendingArchiveRemoval = payment
+    }
+
+    private func syncLinkedLoanAfterUnmarkingPaid(_ payment: RecurringPayment) {
+        var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+
+        let result = recurringLoanSync.revertRecurringPayment(
+            payment,
+            debts: &debts
+        )
+
+        guard let previousDebt = result.previousDebt,
+              let updatedDebt = result.updatedDebt else {
+            return
+        }
+
+        DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
+        AuditLogStore.shared.logDebtUpdated(
+            from: previousDebt,
+            to: updatedDebt,
+            user: auth.currentUser,
+            note: settings.language == .spanish
+            ? "Pago fijo desmarcado; el saldo del préstamo fue restaurado."
+            : "Recurring payment unmarked; loan balance was restored."
+        )
+    }
+
+    private func confirmArchiveLinkedLoan() {
+        guard let loanPendingPaidConfirmation else {
+            clearLinkedLoanArchiveState()
+            return
+        }
+
+        var debts = DataManager.shared.loadDebts(user: auth.currentUser)
+
+        guard let debtIndex = debts.firstIndex(where: { $0.id == loanPendingPaidConfirmation.id }) else {
+            clearLinkedLoanArchiveState()
+            return
+        }
+
+        let previousDebt = debts[debtIndex]
+
+        var archivedDebt = debts[debtIndex]
+        archivedDebt.markAsPaid()
+
+        debts[debtIndex] = archivedDebt
+        DataManager.shared.saveDebts(debts, user: auth.currentUser)
+
+        AuditLogStore.shared.logDebtUpdated(
+            from: previousDebt,
+            to: archivedDebt,
+            user: auth.currentUser,
+            note: settings.language == .spanish
+            ? "Préstamo movido a pagadas desde pagos fijos."
+            : "Loan moved to paid from recurring payments."
+        )
+
+        removeArchivedLoanRecurringPayment(for: archivedDebt)
+        clearLinkedLoanArchiveState()
+    }
+
+    private func keepLinkedLoanActive() {
+        clearLinkedLoanArchiveState()
+    }
+
+    private func removeArchivedLoanRecurringPayment(for debt: Debt) {
+        guard let paymentToRemove = linkedPaymentPendingArchiveRemoval else {
+            return
+        }
+
+        NotificationManager.shared.cancelNotification(for: paymentToRemove)
+
+        withAnimation(.spring()) {
+            payments.removeAll { payment in
+                payment.id == paymentToRemove.id || payment.linkedDebtId == debt.id
+            }
+        }
+
+        AuditLogStore.shared.logRecurringPaymentDeleted(
+            paymentToRemove,
+            user: auth.currentUser
+        )
+
+        persist()
+    }
+
+    private func clearLinkedLoanArchiveState() {
+        loanPendingPaidConfirmation = nil
+        linkedPaymentPendingArchiveRemoval = nil
     }
 
     private func persist() {
