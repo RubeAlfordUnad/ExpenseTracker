@@ -706,15 +706,15 @@ struct DebtsView: View {
         debts[index] = archivedDebt
         selectedFilter = .paid
 
+        let removedPayment = linkedRecurringPayment(for: archivedDebt)
         removeLinkedRecurringPayment(for: archivedDebt)
 
-        AuditLogStore.shared.logDebtUpdated(
+        AuditLogStore.shared.logDebtMovedToPaid(
             from: previousDebt,
             to: archivedDebt,
-            user: auth.currentUser,
-            note: settings.language == .spanish
-            ? "Deuda movida a pagadas."
-            : "Debt moved to paid."
+            trigger: .debtModule,
+            removedRecurringPayment: removedPayment,
+            user: auth.currentUser
         )
     }
 
@@ -740,10 +740,16 @@ struct DebtsView: View {
         activeDebt.status = .active
         debts[index] = activeDebt
 
+        AuditLogStore.shared.logDebtKeptActiveAtZero(
+            activeDebt,
+            source: .debtEditor,
+            user: auth.currentUser
+        )
+
         self.debtPendingPaidConfirmation = nil
         self.paidConfirmationOriginalDebt = nil
     }
-
+    
     private func removeDebt(_ debt: Debt) {
         let expenses = DataManager.shared.loadExpenses(user: auth.currentUser)
 
@@ -760,6 +766,14 @@ struct DebtsView: View {
         removeLinkedRecurringPayment(for: debt)
         AuditLogStore.shared.logDebtDeleted(debt, user: auth.currentUser)
         debts.removeAll { $0.id == debt.id }
+    }
+    
+    private func linkedRecurringPayment(for debt: Debt) -> RecurringPayment? {
+        let payments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
+
+        return payments.first { payment in
+            payment.id == debt.linkedRecurringPaymentId || payment.linkedDebtId == debt.id
+        }
     }
 
     private func removeLinkedRecurringPayment(for debt: Debt) {

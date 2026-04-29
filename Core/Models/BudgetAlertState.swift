@@ -1,10 +1,3 @@
-//
-//  BudgetAlertState.swift
-//  ExpenseTracker
-//
-//  Created by Ruben Alford on 19/03/26.
-//
-
 import Foundation
 
 struct BudgetAlertState: Codable, Equatable {

@@ -826,22 +826,59 @@ final class AuditLogStore {
     }
 
     private func debtSummary(_ debt: Debt) -> String {
-        """
+        if debt.isLoan {
+            let monthlyPayment = debt.monthlyPayment.map(amountString) ?? "Sin cuota"
+            let installmentCount = debt.installmentCount.map(String.init) ?? "Sin cuotas"
+            let remainingInstallments = debt.remainingInstallments.map(String.init) ?? "Sin dato"
+            let firstPayment = debt.firstPaymentDate.map(dayString) ?? "Sin fecha"
+
+            return """
+            Tipo: Préstamo
+            Estado: \(debt.status == .paid ? "Pagada" : "Activa")
+            Monto total: \(amountString(debt.totalLimit))
+            Saldo pendiente: \(amountString(debt.remainingDebt))
+            Monto pagado: \(amountString(debt.paidAmount))
+            Cuota mensual: \(monthlyPayment)
+            Cuotas pagadas: \(debt.paymentsMade)/\(installmentCount)
+            Cuotas restantes: \(remainingInstallments)
+            Primer pago: \(firstPayment)
+            Pago fijo vinculado: \(debt.linkedRecurringPaymentId == nil ? "No" : "Sí")
+            """
+        }
+
+        let closingDay = debt.statementClosingDay.map { "Día \($0)" } ?? "Sin día"
+        let minimumDueDay = debt.minimumPaymentDueDay.map { "Día \($0)" } ?? "Sin día"
+        let fixedMinimum = debt.minimumPaymentFixedAmount.map(amountString) ?? "Sin mínimo fijo"
+
+        return """
+        Tipo: Tarjeta de crédito
+        Estado: \(debt.status == .paid ? "Pagada" : "Activa")
         Cupo total: \(amountString(debt.totalLimit))
         Deuda actual: \(amountString(debt.remainingDebt))
         Disponible: \(amountString(debt.availableCredit))
+        Uso del cupo: \(debt.utilizationPercentage)%
+        Pago mínimo estimado: \(amountString(debt.estimatedMinimumPayment))
+        Pago estimado con manejo: \(amountString(debt.estimatedMonthlyCardPayment))
+        Cuota de manejo: \(amountString(debt.managementFee))
+        Porcentaje mínimo: \(String(format: "%.2f", debt.minimumPaymentRate * 100))%
+        Mínimo fijo: \(fixedMinimum)
+        Día de corte: \(closingDay)
+        Día de pago mínimo: \(minimumDueDay)
         """
     }
 
     private func recurringPaymentSummary(_ payment: RecurringPayment) -> String {
         let custom = payment.customCategoryName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let category = (custom?.isEmpty == false) ? custom! : payment.category.rawValue
+        let linkedDebtText = payment.linkedDebtId == nil ? "No" : "Sí"
 
         return """
         Monto: \(amountString(payment.amount))
         Día de cobro: \(payment.dueDay)
         Categoría: \(category)
         Activo: \(payment.isActive ? "Sí" : "No")
+        Pagado este mes: \(payment.isPaidForCurrentMonth ? "Sí" : "No")
+        Vinculado a préstamo: \(linkedDebtText)
         """
     }
 
@@ -854,8 +891,8 @@ final class AuditLogStore {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.currencyCode = "COP"
-        formatter.maximumFractionDigits = 0
-        formatter.minimumFractionDigits = 0
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 2
         formatter.locale = Locale(identifier: "es_CO")
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
@@ -863,7 +900,7 @@ final class AuditLogStore {
     private func dayString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "es_CO")
-        formatter.dateFormat = "dd/MM/yyyy"
+        formatter.dateFormat = "dd/MM/yyyy, h:mm a"
         return formatter.string(from: date)
     }
 }

@@ -325,19 +325,19 @@ struct AddPaymentView: View {
             return
         }
 
-        let previousDebtAmount = debt.remainingDebt
+        let previousDebt = debt
         debt.applyPayment(value)
 
         onApplyPayment(value, selectedMoneyAccountId)
 
         let accountName = moneyAccounts.first(where: { $0.id == selectedMoneyAccountId })?.name ?? "Unknown"
 
-        AuditLogStore.shared.logDebtPayment(
-            cardName: debt.cardName,
+        AuditLogStore.shared.logDebtPaymentApplied(
+            from: previousDebt,
+            to: debt,
             amount: value,
             fromAccountName: accountName,
-            remainingDebtBefore: previousDebtAmount,
-            remainingDebtAfter: debt.remainingDebt,
+            source: .debtPaymentSheet,
             user: auth.currentUser
         )
 

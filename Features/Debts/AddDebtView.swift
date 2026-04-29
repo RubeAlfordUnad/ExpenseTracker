@@ -503,11 +503,12 @@ struct AddDebtView: View {
 
         var payments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
         let recurringId = debt.linkedRecurringPaymentId ?? UUID()
+        let savedPayment: RecurringPayment
 
         if let index = payments.firstIndex(where: { $0.id == recurringId || $0.linkedDebtId == debt.id }) {
             let existingPayment = payments[index]
 
-            payments[index] = RecurringPayment(
+            let updatedPayment = RecurringPayment(
                 id: existingPayment.id,
                 title: debt.cardName,
                 amount: parsedMonthlyPayment,
@@ -521,7 +522,9 @@ struct AddDebtView: View {
                 linkedDebtId: debt.id
             )
 
+            payments[index] = updatedPayment
             debt.linkedRecurringPaymentId = existingPayment.id
+            savedPayment = updatedPayment
         } else {
             let newPayment = RecurringPayment(
                 id: recurringId,
@@ -536,26 +539,46 @@ struct AddDebtView: View {
 
             payments.append(newPayment)
             debt.linkedRecurringPaymentId = recurringId
+            savedPayment = newPayment
         }
 
         DataManager.shared.saveRecurringPayments(payments, user: auth.currentUser)
+
+        AuditLogStore.shared.logLoanRecurringPaymentLinked(
+            loan: debt,
+            payment: savedPayment,
+            user: auth.currentUser
+        )
     }
 
     private func removeLinkedRecurringPaymentIfNeeded(for debt: Debt?) {
         guard let debt else { return }
 
         var payments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
-        let originalCount = payments.count
+
+        let removedPayments = payments.filter { payment in
+            payment.id == debt.linkedRecurringPaymentId || payment.linkedDebtId == debt.id
+        }
 
         payments.removeAll { payment in
             payment.id == debt.linkedRecurringPaymentId || payment.linkedDebtId == debt.id
         }
 
-        if payments.count != originalCount {
-            DataManager.shared.saveRecurringPayments(payments, user: auth.currentUser)
+        guard !removedPayments.isEmpty else {
+            return
+        }
+
+        DataManager.shared.saveRecurringPayments(payments, user: auth.currentUser)
+
+        for payment in removedPayments {
+            AuditLogStore.shared.logLoanRecurringPaymentUnlinked(
+                loan: debt,
+                payment: payment,
+                user: auth.currentUser
+            )
         }
     }
-
+    
     private var navigationTitle: String {
         if isEditing {
             return selectedKind == .loan

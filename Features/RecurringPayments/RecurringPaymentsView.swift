@@ -655,22 +655,13 @@ struct RecurringPaymentsView: View {
 
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
-        AuditLogStore.shared.logDebtPayment(
-            cardName: updatedDebt.cardName,
-            amount: payment.amount,
-            fromAccountName: fromAccountName,
-            remainingDebtBefore: previousDebt.remainingDebt,
-            remainingDebtAfter: updatedDebt.remainingDebt,
-            user: auth.currentUser
-        )
-
-        AuditLogStore.shared.logDebtUpdated(
+        AuditLogStore.shared.logDebtPaymentApplied(
             from: previousDebt,
             to: updatedDebt,
-            user: auth.currentUser,
-            note: settings.language == .spanish
-            ? "Actualizado automáticamente desde un pago fijo vinculado."
-            : "Automatically updated from a linked recurring payment."
+            amount: payment.amount,
+            fromAccountName: fromAccountName,
+            source: .linkedRecurringPayment,
+            user: auth.currentUser
         )
 
         guard result.shouldAskToArchivePaidLoan else {
@@ -696,13 +687,11 @@ struct RecurringPaymentsView: View {
 
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
-        AuditLogStore.shared.logDebtUpdated(
+        AuditLogStore.shared.logLinkedLoanRecurringPaymentReverted(
             from: previousDebt,
             to: updatedDebt,
-            user: auth.currentUser,
-            note: settings.language == .spanish
-            ? "Pago fijo desmarcado; el saldo del préstamo fue restaurado."
-            : "Recurring payment unmarked; loan balance was restored."
+            payment: payment,
+            user: auth.currentUser
         )
     }
 
@@ -727,19 +716,18 @@ struct RecurringPaymentsView: View {
         debts[debtIndex] = archivedDebt
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
-        AuditLogStore.shared.logDebtUpdated(
+        AuditLogStore.shared.logDebtMovedToPaid(
             from: previousDebt,
             to: archivedDebt,
-            user: auth.currentUser,
-            note: settings.language == .spanish
-            ? "Préstamo movido a pagadas desde pagos fijos."
-            : "Loan moved to paid from recurring payments."
+            trigger: .linkedRecurringPayment,
+            removedRecurringPayment: linkedPaymentPendingArchiveRemoval,
+            user: auth.currentUser
         )
 
         removeArchivedLoanRecurringPayment(for: archivedDebt)
         clearLinkedLoanArchiveState()
     }
-
+    
     private func keepLinkedLoanActive() {
         clearLinkedLoanArchiveState()
     }
@@ -757,8 +745,9 @@ struct RecurringPaymentsView: View {
             }
         }
 
-        AuditLogStore.shared.logRecurringPaymentDeleted(
-            paymentToRemove,
+        AuditLogStore.shared.logLoanRecurringPaymentRemovedAfterDebtArchive(
+            loan: debt,
+            payment: paymentToRemove,
             user: auth.currentUser
         )
 
