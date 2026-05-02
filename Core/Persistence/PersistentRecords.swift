@@ -9,7 +9,10 @@ final class StoredExpense {
     var amount: Double
     var date: Date
     var categoryRawValue: String
+    var customCategoryName: String?
     var moneyAccountId: UUID?
+    var creditCardId: UUID?
+    var comment: String?
 
     init(expense: Expense, user: String) {
         self.id = expense.id
@@ -18,7 +21,10 @@ final class StoredExpense {
         self.amount = expense.amount
         self.date = expense.date
         self.categoryRawValue = expense.category.rawValue
+        self.customCategoryName = expense.customCategoryName
         self.moneyAccountId = expense.moneyAccountId
+        self.creditCardId = expense.creditCardId
+        self.comment = expense.comment
     }
 
     func toExpense() -> Expense {
@@ -28,7 +34,10 @@ final class StoredExpense {
             amount: amount,
             date: date,
             category: Category(rawValue: categoryRawValue) ?? .other,
-            moneyAccountId: moneyAccountId
+            customCategoryName: customCategoryName,
+            moneyAccountId: moneyAccountId,
+            creditCardId: creditCardId,
+            comment: comment
         )
     }
 }
@@ -41,7 +50,9 @@ final class StoredIncome {
     var amount: Double
     var date: Date
     var categoryRawValue: String
+    var customCategoryName: String?
     var moneyAccountId: UUID?
+    var comment: String?
 
     init(income: Income, user: String) {
         self.id = income.id
@@ -50,7 +61,9 @@ final class StoredIncome {
         self.amount = income.amount
         self.date = income.date
         self.categoryRawValue = income.category.rawValue
+        self.customCategoryName = income.customCategoryName
         self.moneyAccountId = income.moneyAccountId
+        self.comment = income.comment
     }
 
     func toIncome() -> Income {
@@ -60,7 +73,9 @@ final class StoredIncome {
             amount: amount,
             date: date,
             category: IncomeCategory(rawValue: categoryRawValue) ?? .other,
-            moneyAccountId: moneyAccountId
+            customCategoryName: customCategoryName,
+            moneyAccountId: moneyAccountId,
+            comment: comment
         )
     }
 }

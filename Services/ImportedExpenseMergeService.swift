@@ -122,13 +122,12 @@ struct ImportedExpenseMergeService {
             return true
         }
 
-        guard bucket.count == 1,
-              !fingerprint.hasDisambiguators,
-              let existing = bucket.first,
-              !existing.hasDisambiguators else {
-            return false
+        if bucket.count == 1, let existing = bucket.first {
+            if !fingerprint.hasDisambiguators || !existing.hasDisambiguators {
+                return true
+            }
         }
 
-        return true
+        return false
     }
 }

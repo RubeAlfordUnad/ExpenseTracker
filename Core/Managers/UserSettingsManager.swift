@@ -1,6 +1,5 @@
 import Foundation
 
-@available(*, deprecated, message: "Wrapper legado. Usa AppSettings directamente y elimina este archivo cuando ya no haya referencias.")
 final class UserSettingsManager {
 
     static let shared = UserSettingsManager()

@@ -48,6 +48,9 @@ struct MainTabView: View {
     private let moneyAccountSync = MoneyAccountBalanceSync()
     private let moneyAccountTransferSync = MoneyAccountTransferSync()
     private let expenseFundingSync = ExpenseFundingSync()
+    private let recurringGeneratedExpenseDeletionSync = RecurringGeneratedExpenseDeletionSync()
+    private let financialIntegrityRepair = FinancialStateIntegrityRepairService()
+    private let recurringPaidExpenseDeletionRepair = RecurringPaidExpenseDeletionRepairService()
 
     private var currentMonthExpenses: [Expense] {
         let calendar = Calendar.current
@@ -455,7 +458,15 @@ struct MainTabView: View {
     }
 
     private func reloadHomeData() {
-        let snapshot = DataManager.shared.loadFinancialState(user: auth.currentUser)
+        let loadedSnapshot = DataManager.shared.loadFinancialState(user: auth.currentUser)
+        let repairResult = financialIntegrityRepair.repair(loadedSnapshot)
+
+        let snapshot = repairResult.snapshot
+
+        if repairResult.report.hasChanges {
+            DataManager.shared.saveFinancialState(snapshot, user: auth.currentUser)
+            AppLogger.debug(repairResult.report.summary)
+        }
 
         expenses = snapshot.expenses
         incomes = snapshot.incomes
@@ -492,15 +503,40 @@ struct MainTabView: View {
     }
     
     private func persistExpenses() {
+        let recurringPayments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
+        let debts = DataManager.shared.loadDebts(user: auth.currentUser)
+
+        let repairResult = recurringPaidExpenseDeletionRepair.repairDeletedGeneratedExpenses(
+            currentExpenses: expenses,
+            recurringPayments: recurringPayments,
+            debts: debts
+        )
+
+        if repairResult.hasChanges {
+            logRecurringPaidExpenseDeletionRepairEvents(repairResult.events)
+
+            persistFinancialState(
+                using: repairResult.debts,
+                recurringPaymentsOverride: repairResult.recurringPayments
+            )
+
+            refreshInsight()
+            evaluateBudgetNotifications()
+            return
+        }
+
         persistFinancialState()
     }
     
-    private func persistFinancialState(using debtsOverride: [Debt]? = nil) {
+    private func persistFinancialState(
+        using debtsOverride: [Debt]? = nil,
+        recurringPaymentsOverride: [RecurringPayment]? = nil
+    ) {
         let snapshot = FinancialStateSnapshot(
             expenses: expenses,
             incomes: incomes,
             debts: debtsOverride ?? DataManager.shared.loadDebts(user: auth.currentUser),
-            recurringPayments: DataManager.shared.loadRecurringPayments(user: auth.currentUser),
+            recurringPayments: recurringPaymentsOverride ?? DataManager.shared.loadRecurringPayments(user: auth.currentUser),
             moneyAccounts: moneyAccounts,
             accountTransfers: accountTransfers,
             accountBalanceAdjustments: accountBalanceAdjustments,
@@ -508,6 +544,27 @@ struct MainTabView: View {
         )
 
         DataManager.shared.saveFinancialState(snapshot, user: auth.currentUser)
+    }
+    
+    private func logRecurringPaidExpenseDeletionRepairEvents(
+        _ events: [RecurringPaidExpenseDeletionRepairEvent]
+    ) {
+        for event in events {
+            AuditLogStore.shared.logRecurringPaymentMarkedUnpaid(
+                event.updatedPayment,
+                user: auth.currentUser
+            )
+
+            if let previousDebt = event.previousDebt,
+               let updatedDebt = event.updatedDebt {
+                AuditLogStore.shared.logLinkedLoanRecurringPaymentReverted(
+                    from: previousDebt,
+                    to: updatedDebt,
+                    payment: event.previousPayment,
+                    user: auth.currentUser
+                )
+            }
+        }
     }
 
     private func persistIncomes() {
@@ -550,18 +607,60 @@ struct MainTabView: View {
     }
 
     private func deleteRecurringPaymentExpense(withId expenseId: UUID) {
-        guard let expense = expenses.first(where: { $0.id == expenseId }) else { return }
+        guard let expense = expenses.first(where: { $0.id == expenseId }) else {
+            return
+        }
 
         var debts = DataManager.shared.loadDebts(user: auth.currentUser)
-        expenseFundingSync.applyExpenseDeletion(expense, accounts: &moneyAccounts, debts: &debts)
+
+        expenseFundingSync.applyExpenseDeletion(
+            expense,
+            accounts: &moneyAccounts,
+            debts: &debts
+        )
+
+        var recurringPayments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
+
+        let recurringRepairResult = recurringGeneratedExpenseDeletionSync.repairAfterDeletingGeneratedExpense(
+            expenseId: expense.id,
+            recurringPayments: recurringPayments,
+            debts: debts
+        )
+
+        if recurringRepairResult.hasChanges {
+            recurringPayments = recurringRepairResult.recurringPayments
+            debts = recurringRepairResult.debts
+
+            for event in recurringRepairResult.events {
+                AuditLogStore.shared.logRecurringPaymentMarkedUnpaid(
+                    event.updatedPayment,
+                    user: auth.currentUser
+                )
+
+                if let previousDebt = event.previousDebt,
+                   let updatedDebt = event.updatedDebt {
+                    AuditLogStore.shared.logLinkedLoanRecurringPaymentReverted(
+                        from: previousDebt,
+                        to: updatedDebt,
+                        payment: event.previousPayment,
+                        user: auth.currentUser
+                    )
+                }
+            }
+
+            DataManager.shared.saveRecurringPayments(recurringPayments, user: auth.currentUser)
+        }
+
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
         expenses.removeAll { $0.id == expenseId }
-        
+
         AuditLogStore.shared.logExpenseDeleted(
             expense,
             user: auth.currentUser,
-            note: settings.language == .spanish ? "Eliminado al desmarcar un pago fijo" : "Deleted when unmarking a recurring payment"
+            note: settings.language == .spanish
+            ? "Eliminado al desmarcar un pago fijo"
+            : "Deleted when unmarking a recurring payment"
         )
 
         persistExpenses()

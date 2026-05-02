@@ -159,4 +159,19 @@ struct RegressionImportAndDedupeTests {
         #expect(result.duplicates == 1)
         #expect(result.expenses.count == 1)
     }
+
+    private func makeDate(year: Int, month: Int, day: Int) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+
+        return components.date ?? Date(timeIntervalSince1970: 0)
+    }
+
 }

@@ -137,7 +137,7 @@ struct RegressionPersistenceAndBackupTests {
         defer { clearAppStorage(for: [user]) }
 
         TransactionCustomizationStore.shared.saveExpenseCustomCategories([
-            CustomExpenseCategory(name: "Mascotas", style: .pets),
+            CustomExpenseCategory(name: "Mascotas", style: .other),
             CustomExpenseCategory(name: "Gym Pro", style: .health)
         ], user: user)
 
@@ -153,7 +153,7 @@ struct RegressionPersistenceAndBackupTests {
         let payload = try service.makeExport(for: user)
         let snapshot = try service.importSnapshot(from: payload.data)
 
-        #expect(snapshot.expenseCustomCategories.map(\.name) == ["Mascotas", "Gym Pro"])
+        #expect(snapshot.expenseCustomCategories.map(\.name) == ["Gym Pro", "Mascotas"])
         #expect(snapshot.incomeCustomCategories.map(\.name) == ["Side Hustle"])
         #expect(snapshot.moneyAccountCustomCategories.map(\.name) == ["Caja Fuerte"])
     }
@@ -178,11 +178,11 @@ struct RegressionPersistenceAndBackupTests {
             monthlyBudget: nil,
             notificationPreferences: NotificationPreferences(),
             expenseCustomCategories: [
-                CustomExpenseCategory(name: "Mascotas", style: .pets),
+                CustomExpenseCategory(name: "Mascotas", style: .other),
                 CustomExpenseCategory(name: "Viajes relampago", style: .travel)
             ],
             incomeCustomCategories: [
-                CustomIncomeCategory(name: "Bono startup", style: .bonus)
+                CustomIncomeCategory(name: "Bono startup", style: .gift)
             ],
             moneyAccountCustomCategories: [
                 CustomMoneyAccountCategory(name: "Fondo reserva", style: .savings)
@@ -213,7 +213,7 @@ struct RegressionPersistenceAndBackupTests {
             monthlyBudget: nil,
             notificationPreferences: NotificationPreferences(),
             expenseCustomCategories: [
-                CustomExpenseCategory(name: " Mascotas ", style: .pets),
+                CustomExpenseCategory(name: " Mascotas ", style: .other),
                 CustomExpenseCategory(name: "mascotas", style: .health),
                 CustomExpenseCategory(name: "   ", style: .food)
             ],
@@ -242,4 +242,32 @@ struct RegressionPersistenceAndBackupTests {
         #expect(validated.moneyAccountCustomCategories.count == 1)
         #expect(validated.moneyAccountCustomCategories[0].name == "Caja")
     }
+
+
+    private func makeUniqueUsername(_ prefix: String) -> String {
+        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        return "test_\(prefix)_\(suffix)"
+    }
+
+    private func clearAppStorage(for users: [String]) {
+        for user in users {
+            DataManager.shared.deleteAllLocalData(for: user)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func makeDate(year: Int, month: Int, day: Int) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+
+        return components.date ?? Date(timeIntervalSince1970: 0)
+    }
+
 }

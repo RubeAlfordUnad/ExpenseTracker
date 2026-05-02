@@ -267,43 +267,71 @@ struct Debt: Identifiable, Codable, Equatable {
     }
 
     mutating func applyPayment(_ amount: Double) {
-        guard amount.isFinite, amount > 0 else { return }
-
-        remainingDebt = max(remainingDebt - amount, 0)
-
-        if isLoan {
-            let expectedMonthlyPayment = monthlyPayment ?? amount
-            if amount + 0.0001 >= expectedMonthlyPayment || remainingDebt <= 0.0001 {
-                paymentsMade += 1
-            }
-
-            if let installmentCount {
-                paymentsMade = min(paymentsMade, installmentCount)
-            }
+        guard amount.isFinite, amount > 0 else {
+            return
         }
 
-        if isFullyPaid {
-            remainingDebt = 0
+        let validPayment = min(amount, max(remainingDebt, 0))
+        remainingDebt = max(remainingDebt - validPayment, 0)
+
+        if isLoan {
+            recalculateLoanInstallmentsFromBalance()
         }
     }
 
     mutating func revertPayment(_ amount: Double) {
-        guard amount.isFinite, amount > 0 else { return }
+        guard amount.isFinite, amount > 0 else {
+            return
+        }
 
-        remainingDebt = min(remainingDebt + amount, principalAmount)
-        status = .active
+        let principal = max(totalLimit, 0)
+        remainingDebt = min(max(remainingDebt + amount, 0), principal)
 
-        if isLoan, paymentsMade > 0 {
-            paymentsMade -= 1
+        if isLoan {
+            status = .active
+            recalculateLoanInstallmentsFromBalance()
         }
     }
-
+    
     mutating func markAsPaid() {
-        remainingDebt = 0
         status = .paid
+        remainingDebt = 0
 
-        if let installmentCount {
-            paymentsMade = installmentCount
+        if isLoan, let installmentCount {
+            paymentsMade = max(installmentCount, paymentsMade)
         }
+    }
+    private mutating func recalculateLoanInstallmentsFromBalance() {
+        guard isLoan else {
+            return
+        }
+
+        guard let installmentCount, installmentCount > 0 else {
+            paymentsMade = max(paymentsMade, 0)
+            return
+        }
+
+        if remainingDebt <= 0.0001 {
+            paymentsMade = installmentCount
+            return
+        }
+
+        let paidAmount = max(totalLimit - remainingDebt, 0)
+
+        if let monthlyPayment,
+           monthlyPayment.isFinite,
+           monthlyPayment > 0 {
+            let calculatedPayments = Int(floor((paidAmount + 0.0001) / monthlyPayment))
+            paymentsMade = min(max(calculatedPayments, 0), installmentCount)
+            return
+        }
+
+        guard totalLimit.isFinite, totalLimit > 0 else {
+            paymentsMade = min(max(paymentsMade, 0), installmentCount)
+            return
+        }
+
+        let progressBasedPayments = Int(floor((paidAmount / totalLimit) * Double(installmentCount)))
+        paymentsMade = min(max(progressBasedPayments, 0), installmentCount)
     }
 }

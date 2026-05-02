@@ -121,7 +121,7 @@ struct RecurringPaymentCard: View {
             HStack(spacing: 12) {
                 block(
                     title: settings.language == .spanish ? "Monto" : "Amount",
-                    value: settings.secureCurrency(payment.amount, decimals: 0),
+                    value: settings.secureCurrency(payment.amount, decimals: 2),
                     tint: BrandPalette.primary
                 )
 

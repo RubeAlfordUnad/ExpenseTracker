@@ -227,7 +227,6 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         cancelDailySummaryNotifications()
 
         guard isEnabled else {
-            AppLogger.debug("Resumen diario desactivado. No se programa.")
             return
         }
 

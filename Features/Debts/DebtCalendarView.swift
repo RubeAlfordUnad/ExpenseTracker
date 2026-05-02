@@ -1,5 +1,32 @@
 import SwiftUI
 
+private enum DebtCalendarFilter: String, CaseIterable, Identifiable {
+    case all
+    case cards
+    case loans
+
+    var id: String { rawValue }
+
+    func title(language: AppLanguage) -> String {
+        switch (self, language) {
+        case (.all, .spanish): return "Todas"
+        case (.all, .english): return "All"
+        case (.cards, .spanish): return "Tarjetas"
+        case (.cards, .english): return "Cards"
+        case (.loans, .spanish): return "Préstamos"
+        case (.loans, .english): return "Loans"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .all: return "calendar"
+        case .cards: return "creditcard"
+        case .loans: return "doc.text"
+        }
+    }
+}
+
 private enum DebtCalendarEventKind: String, CaseIterable {
     case statementClosing
     case minimumPayment
@@ -18,34 +45,34 @@ private enum DebtCalendarEventKind: String, CaseIterable {
 
     var color: Color {
         switch self {
-        case .statementClosing:
-            return .blue
-        case .minimumPayment:
-            return .red
-        case .loanPayment:
-            return .orange
+        case .statementClosing: return .blue
+        case .minimumPayment: return .red
+        case .loanPayment: return .orange
         }
     }
 
     var icon: String {
         switch self {
-        case .statementClosing:
-            return "calendar.badge.clock"
-        case .minimumPayment:
-            return "creditcard.fill"
-        case .loanPayment:
-            return "doc.text.fill"
+        case .statementClosing: return "calendar.badge.clock"
+        case .minimumPayment: return "creditcard.fill"
+        case .loanPayment: return "doc.text.fill"
         }
     }
 
     var sortPriority: Int {
         switch self {
+        case .statementClosing: return 0
+        case .minimumPayment: return 1
+        case .loanPayment: return 2
+        }
+    }
+
+    var shouldCountAsPayment: Bool {
+        switch self {
         case .statementClosing:
-            return 0
-        case .minimumPayment:
-            return 1
-        case .loanPayment:
-            return 2
+            return false
+        case .minimumPayment, .loanPayment:
+            return true
         }
     }
 }
@@ -65,9 +92,13 @@ struct DebtCalendarView: View {
     @EnvironmentObject private var settings: AppSettings
 
     let debts: [Debt]
+    let expenses: [Expense]
 
     @State private var displayedMonth = Date()
     @State private var selectedDate = Date()
+    @State private var selectedFilter: DebtCalendarFilter = .all
+
+    private let creditCardCycleEstimator = CreditCardCyclePaymentEstimator()
 
     private var calendar: Calendar {
         Calendar.current
@@ -77,10 +108,25 @@ struct DebtCalendarView: View {
         debts.filter { $0.isActive }
     }
 
+    private var filteredDebts: [Debt] {
+        switch selectedFilter {
+        case .all:
+            return activeDebts
+        case .cards:
+            return activeDebts.filter { $0.isCreditCard }
+        case .loans:
+            return activeDebts.filter { $0.isLoan }
+        }
+    }
+
     private var monthStart: Date {
         calendar.date(
             from: calendar.dateComponents([.year, .month], from: displayedMonth)
         ) ?? displayedMonth
+    }
+
+    private var today: Date {
+        calendar.startOfDay(for: Date())
     }
 
     private var monthTitle: String {
@@ -107,7 +153,7 @@ struct DebtCalendarView: View {
     }
 
     private var monthEvents: [DebtCalendarEvent] {
-        activeDebts.flatMap { events(for: $0, inMonthOf: monthStart) }
+        filteredDebts.flatMap { events(for: $0, inMonthOf: monthStart) }
             .sorted {
                 if calendar.compare($0.date, to: $1.date, toGranularity: .day) == .orderedSame {
                     return $0.kind.sortPriority < $1.kind.sortPriority
@@ -123,11 +169,42 @@ struct DebtCalendarView: View {
         }
     }
 
+    private var monthlyEstimatedPaymentTotal: Double {
+        monthEvents.reduce(0) { partial, event in
+            guard event.kind.shouldCountAsPayment else {
+                return partial
+            }
+
+            return partial + max(event.amount ?? 0, 0)
+        }
+    }
+
+    private var statementClosingCount: Int {
+        monthEvents.filter { $0.kind == .statementClosing }.count
+    }
+
+    private var minimumPaymentCount: Int {
+        monthEvents.filter { $0.kind == .minimumPayment }.count
+    }
+
+    private var loanPaymentCount: Int {
+        monthEvents.filter { $0.kind == .loanPayment }.count
+    }
+
+    private var overduePaymentCount: Int {
+        monthEvents.filter { event in
+            event.kind.shouldCountAsPayment
+            && calendar.startOfDay(for: event.date) < today
+        }.count
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     monthControls
+                    summaryCard
+                    filterBar
                     legend
                     calendarGrid
                     selectedDayDetails
@@ -197,6 +274,140 @@ struct DebtCalendarView: View {
         }
     }
 
+    private var summaryCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "chart.bar.doc.horizontal")
+                    .font(.headline)
+                    .foregroundColor(BrandPalette.primary)
+                    .frame(width: 38, height: 38)
+                    .background(BrandPalette.primary.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settings.language == .spanish ? "Resumen del mes" : "Monthly summary")
+                        .font(.headline)
+
+                    Text(settings.language == .spanish ? "Pagos estimados y eventos activos" : "Estimated payments and active events")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+            }
+
+            HStack(spacing: 10) {
+                summaryAmountBlock(
+                    title: settings.language == .spanish ? "A pagar aprox." : "Estimated due",
+                    value: money(monthlyEstimatedPaymentTotal),
+                    tint: BrandPalette.primary
+                )
+
+                summaryAmountBlock(
+                    title: settings.language == .spanish ? "Vencidos" : "Overdue",
+                    value: "\(overduePaymentCount)",
+                    tint: overduePaymentCount > 0 ? .red : BrandPalette.secondary
+                )
+            }
+
+            HStack(spacing: 8) {
+                eventCountPill(
+                    title: settings.language == .spanish ? "Cortes" : "Closings",
+                    count: statementClosingCount,
+                    color: .blue
+                )
+
+                eventCountPill(
+                    title: settings.language == .spanish ? "Mínimos" : "Minimums",
+                    count: minimumPaymentCount,
+                    color: .red
+                )
+
+                eventCountPill(
+                    title: settings.language == .spanish ? "Préstamos" : "Loans",
+                    count: loanPaymentCount,
+                    color: .orange
+                )
+            }
+        }
+        .padding(16)
+        .background(BrandPalette.surface)
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    private func summaryAmountBlock(title: String, value: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text(value)
+                .font(.subheadline.bold())
+                .foregroundColor(tint)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(tint.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func eventCountPill(title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 7, height: 7)
+
+            Text("\(title): \(count)")
+                .font(.caption.bold())
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 8)
+        .background(color.opacity(0.08))
+        .clipShape(Capsule())
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 8) {
+            ForEach(DebtCalendarFilter.allCases) { filter in
+                Button {
+                    withAnimation(.spring()) {
+                        selectedFilter = filter
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: filter.icon)
+                            .font(.caption.bold())
+
+                        Text(filter.title(language: settings.language))
+                            .font(.caption.bold())
+                    }
+                    .foregroundColor(selectedFilter == filter ? .white : .primary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(selectedFilter == filter ? BrandPalette.primary : BrandPalette.surface)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(BrandPalette.stroke, lineWidth: selectedFilter == filter ? 0 : 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var legend: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(settings.language == .spanish ? "Leyenda" : "Legend")
@@ -245,7 +456,7 @@ struct DebtCalendarView: View {
             ) {
                 ForEach(0..<firstWeekdayOffset, id: \.self) { _ in
                     Color.clear
-                        .frame(height: 52)
+                        .frame(height: 54)
                 }
 
                 ForEach(daysInMonth, id: \.self) { day in
@@ -264,7 +475,8 @@ struct DebtCalendarView: View {
 
     private var weekdayHeader: some View {
         let symbols = calendar.shortStandaloneWeekdaySymbols
-        let orderedSymbols = Array(symbols[(calendar.firstWeekday - 1)...] + symbols[..<(calendar.firstWeekday - 1)])
+        let startIndex = calendar.firstWeekday - 1
+        let orderedSymbols = Array(symbols[startIndex..<symbols.count]) + Array(symbols[0..<startIndex])
 
         return HStack(spacing: 8) {
             ForEach(orderedSymbols, id: \.self) { symbol in
@@ -281,6 +493,10 @@ struct DebtCalendarView: View {
         let events = eventsForDay(day)
         let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
         let isToday = calendar.isDateInToday(date)
+        let hasOverduePayment = events.contains { event in
+            event.kind.shouldCountAsPayment
+            && calendar.startOfDay(for: event.date) < today
+        }
 
         return Button {
             selectedDate = date
@@ -306,14 +522,17 @@ struct DebtCalendarView: View {
                 }
                 .frame(height: 8)
             }
-            .frame(height: 52)
+            .frame(height: 54)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(isSelected ? BrandPalette.primary : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(isToday ? BrandPalette.primary : Color.clear, lineWidth: 1.4)
+                    .stroke(
+                        hasOverduePayment ? Color.red : (isToday ? BrandPalette.primary : Color.clear),
+                        lineWidth: hasOverduePayment || isToday ? 1.4 : 0
+                    )
             )
         }
         .buttonStyle(.plain)
@@ -358,9 +577,13 @@ struct DebtCalendarView: View {
                 .background(event.kind.color.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(event.kind.title(language: settings.language))
-                    .font(.subheadline.bold())
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(event.kind.title(language: settings.language))
+                        .font(.subheadline.bold())
+
+                    eventStatusPill(for: event)
+                }
 
                 Text(event.debt.cardName)
                     .font(.subheadline)
@@ -371,7 +594,7 @@ struct DebtCalendarView: View {
                     .foregroundColor(.secondary)
 
                 if let amount = event.amount {
-                    Text(settings.secureCurrency(amount, decimals: 2))
+                    Text(money(amount))
                         .font(.caption.bold())
                         .foregroundColor(event.kind.color)
                 }
@@ -388,16 +611,46 @@ struct DebtCalendarView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private var monthSummaryText: String {
-        let closingCount = monthEvents.filter { $0.kind == .statementClosing }.count
-        let minimumCount = monthEvents.filter { $0.kind == .minimumPayment }.count
-        let loanCount = monthEvents.filter { $0.kind == .loanPayment }.count
+    @ViewBuilder
+    private func eventStatusPill(for event: DebtCalendarEvent) -> some View {
+        if event.kind.shouldCountAsPayment {
+            let eventDay = calendar.startOfDay(for: event.date)
 
+            if eventDay < today {
+                statusPill(
+                    text: settings.language == .spanish ? "Vencido" : "Overdue",
+                    color: .red
+                )
+            } else if eventDay == today {
+                statusPill(
+                    text: settings.language == .spanish ? "Hoy" : "Today",
+                    color: .orange
+                )
+            } else {
+                statusPill(
+                    text: settings.language == .spanish ? "Próximo" : "Upcoming",
+                    color: BrandPalette.primary
+                )
+            }
+        }
+    }
+
+    private func statusPill(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption2.bold())
+            .foregroundColor(color)
+            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .background(color.opacity(0.1))
+            .clipShape(Capsule())
+    }
+
+    private var monthSummaryText: String {
         if settings.language == .spanish {
-            return "\(closingCount) cortes · \(minimumCount) pagos mínimos · \(loanCount) préstamos"
+            return "\(statementClosingCount) cortes · \(minimumPaymentCount) pagos mínimos · \(loanPaymentCount) préstamos"
         }
 
-        return "\(closingCount) closings · \(minimumCount) minimum payments · \(loanCount) loans"
+        return "\(statementClosingCount) closings · \(minimumPaymentCount) minimum payments · \(loanPaymentCount) loans"
     }
 
     private var selectedDateTitle: String {
@@ -436,15 +689,20 @@ struct DebtCalendarView: View {
             }
 
             if let dueDay = debt.minimumPaymentDueDay {
+                let dueDate = makeDate(day: safeDay(dueDay, inMonthOf: date))
+                let estimate = creditCardCycleEstimator.estimate(
+                    for: debt,
+                    expenses: expenses,
+                    referenceDate: dueDate
+                )
+
                 result.append(
                     DebtCalendarEvent(
-                        date: makeDate(day: safeDay(dueDay, inMonthOf: date)),
+                        date: dueDate,
                         kind: .minimumPayment,
                         debt: debt,
-                        amount: debt.estimatedMonthlyCardPayment,
-                        detail: settings.language == .spanish
-                        ? "Pago estimado con cuota de manejo incluida."
-                        : "Estimated payment including management fee."
+                        amount: estimate?.estimatedTotalDue ?? debt.estimatedMonthlyCardPayment,
+                        detail: minimumPaymentDetail(for: debt, estimate: estimate)
                     )
                 )
             }
@@ -467,6 +725,27 @@ struct DebtCalendarView: View {
         }
 
         return result
+    }
+
+    private func minimumPaymentDetail(
+        for debt: Debt,
+        estimate: CreditCardCyclePaymentEstimate?
+    ) -> String {
+        guard let estimate else {
+            return settings.language == .spanish
+            ? "Pago estimado con cuota de manejo incluida."
+            : "Estimated payment including management fee."
+        }
+
+        let cycleAmount = money(estimate.cycleExpensesTotal)
+        let principalMinimum = money(estimate.principalMinimumPayment)
+        let managementFee = money(estimate.managementFee)
+
+        if settings.language == .spanish {
+            return "Ciclo: \(cycleAmount) · mínimo: \(principalMinimum) · manejo: \(managementFee)."
+        }
+
+        return "Cycle: \(cycleAmount) · minimum: \(principalMinimum) · fee: \(managementFee)."
     }
 
     private func loanEventDetail(for debt: Debt) -> String {
@@ -510,5 +789,9 @@ struct DebtCalendarView: View {
             value: value,
             to: displayedMonth
         ) ?? displayedMonth
+    }
+
+    private func money(_ amount: Double) -> String {
+        settings.secureCurrency(amount, decimals: 2)
     }
 }

@@ -4,8 +4,8 @@ extension Double {
     func asCurrency(
         code: String,
         locale: Locale,
-        minimumFractionDigits: Int = 0,
-        maximumFractionDigits: Int = 0
+        minimumFractionDigits: Int = 2,
+        maximumFractionDigits: Int = 2
     ) -> String {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency

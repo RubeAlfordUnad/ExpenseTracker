@@ -31,7 +31,7 @@ struct AddExpenseView: View {
     let moneyAccounts: [MoneyAccount]
     let debts: [Debt]
     let onSave: (Expense) -> Void
-    
+
     private let moneyAccountFundsGuard = MoneyAccountFundsGuard()
     private let debtSpendingGuard = DebtSpendingGuard()
 
@@ -42,13 +42,17 @@ struct AddExpenseView: View {
         preselectedCreditCardId: UUID? = nil,
         onSave: @escaping (Expense) -> Void
     ) {
+        let eligibleCreditCards = CreditCardExpenseSourceFilter.eligibleCards(
+            from: debts,
+            existingExpense: existingExpense,
+            preselectedCreditCardId: preselectedCreditCardId
+        )
+
         self.existingExpense = existingExpense
         self.moneyAccounts = moneyAccounts.sorted {
             $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
         }
-        self.debts = debts.sorted {
-            $0.cardName.localizedCaseInsensitiveCompare($1.cardName) == .orderedAscending
-        }
+        self.debts = eligibleCreditCards
         self.onSave = onSave
 
         let validExistingAccountId = existingExpense?.moneyAccountId.flatMap { existingId in
@@ -57,7 +61,7 @@ struct AddExpenseView: View {
 
         let preferredCardId = existingExpense?.creditCardId ?? preselectedCreditCardId
         let validExistingCreditCardId = preferredCardId.flatMap { existingId in
-            debts.contains(where: { $0.id == existingId }) ? existingId : nil
+            eligibleCreditCards.contains(where: { $0.id == existingId }) ? existingId : nil
         }
 
         let initialFundingSource: ExpenseFundingSource
@@ -67,7 +71,7 @@ struct AddExpenseView: View {
             initialFundingSource = .moneyAccount
         } else if !moneyAccounts.isEmpty {
             initialFundingSource = .moneyAccount
-        } else if !debts.isEmpty {
+        } else if !eligibleCreditCards.isEmpty {
             initialFundingSource = .creditCard
         } else {
             initialFundingSource = .none
@@ -78,11 +82,13 @@ struct AddExpenseView: View {
         _category = State(initialValue: existingExpense?.category ?? .other)
         _customCategoryName = State(initialValue: existingExpense?.customCategoryName ?? "")
         _comment = State(initialValue: existingExpense?.comment ?? "")
+
         let initialExpenseDate = min(existingExpense?.date ?? Date(), Date())
         _expenseDate = State(initialValue: initialExpenseDate)
+
         _selectedFundingSource = State(initialValue: initialFundingSource)
         _selectedMoneyAccountId = State(initialValue: validExistingAccountId ?? moneyAccounts.first?.id)
-        _selectedCreditCardId = State(initialValue: validExistingCreditCardId ?? debts.first?.id)
+        _selectedCreditCardId = State(initialValue: validExistingCreditCardId ?? eligibleCreditCards.first?.id)
     }
 
     private var validationError: FormValidationError? {
@@ -92,8 +98,8 @@ struct AddExpenseView: View {
     private var fundingValidationMessage: String? {
         if moneyAccounts.isEmpty && debts.isEmpty {
             return settings.language == .spanish
-            ? "Debes crear al menos una cuenta de dinero o una tarjeta antes de registrar este gasto."
-            : "You need to create at least one money account or card before registering this expense."
+            ? "Debes crear al menos una cuenta de dinero o una tarjeta activa antes de registrar este gasto."
+            : "You need to create at least one money account or active card before registering this expense."
         }
 
         switch selectedFundingSource {
@@ -101,19 +107,28 @@ struct AddExpenseView: View {
             return settings.language == .spanish
             ? "Selecciona de dónde salió este gasto."
             : "Select where this expense came from."
+
         case .moneyAccount:
-            guard selectedMoneyAccountId == nil else { return nil }
-            return settings.language == .spanish
-            ? "Selecciona la cuenta desde donde salió este gasto."
-            : "Select the account this expense came from."
+            guard let selectedMoneyAccountId,
+                  moneyAccounts.contains(where: { $0.id == selectedMoneyAccountId }) else {
+                return settings.language == .spanish
+                ? "Selecciona la cuenta desde donde salió este gasto."
+                : "Select the account this expense came from."
+            }
+
+            return nil
+
         case .creditCard:
-            guard selectedCreditCardId == nil else { return nil }
-            return settings.language == .spanish
-            ? "Selecciona la tarjeta usada para este gasto."
-            : "Select the card used for this expense."
+            guard CreditCardExpenseSourceFilter.containsValidCard(selectedCreditCardId, in: debts) else {
+                return settings.language == .spanish
+                ? "Selecciona una tarjeta activa para este gasto."
+                : "Select an active card for this expense."
+            }
+
+            return nil
         }
     }
-    
+
     private var moneyAccountLimitImpact: MoneyAccountFundsImpact? {
         guard selectedFundingSource == .moneyAccount,
               let parsedAmount = FormValidator.normalizedPositiveAmount(from: amount) else {
@@ -134,12 +149,12 @@ struct AddExpenseView: View {
         }
 
         if settings.language == .spanish {
-            return "Este gasto dejaría en negativo la cuenta \"\(impact.accountName)\". Máximo permitido para este gasto: \(settings.secureCurrency(impact.allowedAmount)). Saldo actual: \(settings.secureCurrency(impact.availableBalance))."
+            return "Este gasto dejaría en negativo la cuenta \"\(impact.accountName)\". Máximo permitido para este gasto: \(settings.secureCurrency(impact.allowedAmount, decimals: 2)). Saldo actual: \(settings.secureCurrency(impact.availableBalance, decimals: 2))."
         } else {
-            return "This expense would overdraw the account \"\(impact.accountName)\". Maximum allowed for this expense: \(settings.secureCurrency(impact.allowedAmount)). Current balance: \(settings.secureCurrency(impact.availableBalance))."
+            return "This expense would overdraw the account \"\(impact.accountName)\". Maximum allowed for this expense: \(settings.secureCurrency(impact.allowedAmount, decimals: 2)). Current balance: \(settings.secureCurrency(impact.availableBalance, decimals: 2))."
         }
     }
-    
+
     private var creditLimitImpact: DebtSpendingImpact? {
         guard selectedFundingSource == .creditCard,
               let parsedAmount = FormValidator.normalizedPositiveAmount(from: amount) else {
@@ -160,9 +175,9 @@ struct AddExpenseView: View {
         }
 
         if settings.language == .spanish {
-            return "Esta compra supera el cupo disponible de \"\(impact.cardName)\". Máximo permitido para este gasto: \(settings.secureCurrency(impact.allowedAmount)). Disponible actual: \(settings.secureCurrency(impact.availableCredit))."
+            return "Esta compra supera el cupo disponible de \"\(impact.cardName)\". Máximo permitido para este gasto: \(settings.secureCurrency(impact.allowedAmount, decimals: 2)). Disponible actual: \(settings.secureCurrency(impact.availableCredit, decimals: 2))."
         } else {
-            return "This purchase exceeds the available credit on \"\(impact.cardName)\". Maximum allowed for this expense: \(settings.secureCurrency(impact.allowedAmount)). Current available credit: \(settings.secureCurrency(impact.availableCredit))."
+            return "This purchase exceeds the available credit on \"\(impact.cardName)\". Maximum allowed for this expense: \(settings.secureCurrency(impact.allowedAmount, decimals: 2)). Current available credit: \(settings.secureCurrency(impact.availableCredit, decimals: 2))."
         }
     }
 
@@ -235,7 +250,10 @@ struct AddExpenseView: View {
                 }
 
                 Section {
-                    Picker(settings.language == .spanish ? "Estilo visual base" : "Base visual style", selection: $category) {
+                    Picker(
+                        settings.language == .spanish ? "Estilo visual base" : "Base visual style",
+                        selection: $category
+                    ) {
                         ForEach(Category.allCases, id: \.self) { item in
                             Text(item.displayName(language: settings.language))
                                 .tag(item)
@@ -312,7 +330,7 @@ struct AddExpenseView: View {
                             }
 
                             if !debts.isEmpty {
-                                Text(settings.language == .spanish ? "Tarjeta" : "Card")
+                                Text(settings.language == .spanish ? "Tarjeta activa" : "Active card")
                                     .tag(ExpenseFundingSource.creditCard)
                             }
                         }
@@ -327,7 +345,7 @@ struct AddExpenseView: View {
                                     .tag(nil as UUID?)
 
                                 ForEach(moneyAccounts) { account in
-                                    Text("\(account.name) · \(settings.secureCurrency(account.balance))")
+                                    Text("\(account.name) · \(settings.secureCurrency(account.balance, decimals: 2))")
                                         .tag(account.id as UUID?)
                                 }
                             }
@@ -344,14 +362,14 @@ struct AddExpenseView: View {
 
                         if selectedFundingSource == .creditCard, !debts.isEmpty {
                             Picker(
-                                settings.language == .spanish ? "Tarjeta usada" : "Used card",
+                                settings.language == .spanish ? "Tarjeta activa usada" : "Active card used",
                                 selection: $selectedCreditCardId
                             ) {
-                                Text(settings.language == .spanish ? "Selecciona una tarjeta" : "Select a card")
+                                Text(settings.language == .spanish ? "Selecciona una tarjeta activa" : "Select an active card")
                                     .tag(nil as UUID?)
 
                                 ForEach(debts) { debt in
-                                    Text("\(debt.cardName) · \(settings.secureCurrency(debt.availableCredit))")
+                                    Text("\(debt.cardName) · \(settings.secureCurrency(debt.availableCredit, decimals: 2))")
                                         .tag(debt.id as UUID?)
                                 }
                             }
@@ -441,10 +459,21 @@ struct AddExpenseView: View {
                 case .none:
                     selectedMoneyAccountId = nil
                     selectedCreditCardId = nil
+
                 case .moneyAccount:
                     selectedCreditCardId = nil
+
+                    if selectedMoneyAccountId == nil {
+                        selectedMoneyAccountId = moneyAccounts.first?.id
+                    }
+
                 case .creditCard:
                     selectedMoneyAccountId = nil
+
+                    if selectedCreditCardId == nil
+                        || !CreditCardExpenseSourceFilter.containsValidCard(selectedCreditCardId, in: debts) {
+                        selectedCreditCardId = debts.first?.id
+                    }
                 }
             }
         }
@@ -462,9 +491,18 @@ struct AddExpenseView: View {
         var items = TransactionCustomizationStore.shared.loadExpenseCustomCategories(user: auth.currentUser)
 
         if let index = items.firstIndex(where: { $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame }) {
-            items[index] = CustomExpenseCategory(id: items[index].id, name: trimmed, style: category)
+            items[index] = CustomExpenseCategory(
+                id: items[index].id,
+                name: trimmed,
+                style: category
+            )
         } else {
-            items.append(CustomExpenseCategory(name: trimmed, style: category))
+            items.append(
+                CustomExpenseCategory(
+                    name: trimmed,
+                    style: category
+                )
+            )
         }
 
         TransactionCustomizationStore.shared.saveExpenseCustomCategories(items, user: auth.currentUser)

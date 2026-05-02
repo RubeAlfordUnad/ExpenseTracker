@@ -115,13 +115,13 @@ struct RecurringPaymentsView: View {
                     HStack(spacing: 12) {
                         summaryCard(
                             title: settings.t("recurring.monthlyCommitment"),
-                            value: settings.secureCurrency(monthlyCommitment, decimals: 0),
+                            value: settings.secureCurrency(monthlyCommitment, decimals: 2),
                             accent: BrandPalette.primary
                         )
 
                         summaryCard(
                             title: settings.t("recurring.pending"),
-                            value: settings.secureCurrency(pendingAmount, decimals: 0),
+                            value: settings.secureCurrency(pendingAmount, decimals: 2),
                             accent: BrandPalette.secondary
                         )
                     }

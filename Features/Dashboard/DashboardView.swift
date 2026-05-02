@@ -200,31 +200,32 @@ struct DashboardView: View {
         }
     }
 
+    private var debtMetrics: DashboardDebtMetrics {
+        DashboardDebtMetrics(debts: debts)
+    }
+
     private var totalDebt: Double {
-        debts.reduce(0) { $0 + $1.remainingDebt }
+        debtMetrics.totalOutstandingDebt
     }
 
     private var totalCreditLimit: Double {
-        debts.reduce(0) { $0 + $1.totalLimit }
+        debtMetrics.totalCardLimit
     }
 
     private var debtRawUtilization: Double {
-        guard totalCreditLimit > 0 else { return 0 }
-        let raw = totalDebt / totalCreditLimit
-        guard raw.isFinite else { return 0 }
-        return max(raw, 0)
+        debtMetrics.creditUtilizationRaw
     }
 
     private var debtUtilization: Double {
-        min(debtRawUtilization, 1)
+        debtMetrics.creditUtilization
     }
 
     private var debtUtilizationPercentage: Int {
-        Int((debtRawUtilization * 100).rounded())
+        debtMetrics.creditUtilizationPercentage
     }
 
     private var highlightedDebt: Debt? {
-        debts.max { $0.remainingDebt < $1.remainingDebt }
+        debtMetrics.highlightedCard ?? debtMetrics.highlightedLoan
     }
 
     private var recentActivity: [DashboardActivityItem] {
@@ -675,10 +676,10 @@ struct DashboardView: View {
                 )
 
                 compactFocusCard(
-                    title: settings.language == .spanish ? "Deudas" : "Debts",
-                    value: "\(debts.count)",
-                    subtitle: settings.secureCurrency(totalDebt),
-                    icon: "creditcard"
+                    title: settings.language == .spanish ? "Deudas activas" : "Active debts",
+                    value: "\(debtMetrics.activeDebtCount)",
+                    subtitle: settings.secureCurrency(debtMetrics.totalOutstandingDebt, decimals: 2),
+                    icon: "creditcard.and.123"
                 )
             }
         }
@@ -769,42 +770,73 @@ struct DashboardView: View {
                 }
             }
 
-            if debts.isEmpty {
+            if debtMetrics.activeDebtCount == 0 {
                 emptyDashboardCard(
-                    title: settings.language == .spanish ? "Aún no tienes deudas registradas" : "You do not have debts yet",
+                    title: settings.language == .spanish ? "Aún no tienes deudas activas" : "You do not have active debts yet",
                     subtitle: settings.language == .spanish
-                    ? "Agrega tarjetas o saldos pendientes para seguir el uso de tu crédito."
-                    : "Add cards or pending balances to track your credit usage."
+                    ? "Agrega tarjetas o préstamos para seguir tu deuda real sin mezclar cupos y saldos."
+                    : "Add cards or loans to track your real debt without mixing limits and balances."
                 )
             } else {
                 VStack(spacing: 12) {
                     HStack(spacing: 12) {
                         summaryMetricCard(
-                            title: settings.language == .spanish ? "Deuda total" : "Total debt",
-                            value: settings.secureCurrency(totalDebt),
-                            tone: .negative,
-                            icon: "creditcard.trianglebadge.exclamationmark"
+                            title: settings.language == .spanish ? "Total adeudado" : "Total owed",
+                            value: settings.secureCurrency(debtMetrics.totalOutstandingDebt, decimals: 2),
+                            tone: debtMetrics.totalOutstandingDebt > 0 ? .negative : .neutral,
+                            icon: "exclamationmark.circle"
                         )
 
                         summaryMetricCard(
-                            title: settings.language == .spanish ? "Límite total" : "Total limit",
-                            value: settings.secureCurrency(totalCreditLimit),
-                            tone: .neutral,
+                            title: settings.language == .spanish ? "Tarjetas" : "Cards",
+                            value: settings.secureCurrency(debtMetrics.totalCardDebt, decimals: 2),
+                            tone: debtMetrics.totalCardDebt > 0 ? .negative : .neutral,
+                            icon: "creditcard"
+                        )
+                    }
+
+                    HStack(spacing: 12) {
+                        summaryMetricCard(
+                            title: settings.language == .spanish ? "Préstamos" : "Loans",
+                            value: settings.secureCurrency(debtMetrics.totalLoanDebt, decimals: 2),
+                            tone: debtMetrics.totalLoanDebt > 0 ? .negative : .neutral,
+                            icon: "doc.text"
+                        )
+
+                        summaryMetricCard(
+                            title: settings.language == .spanish ? "Disponible tarjetas" : "Card available",
+                            value: settings.secureCurrency(debtMetrics.totalAvailableCredit, decimals: 2),
+                            tone: debtMetrics.totalAvailableCredit > 0 ? .positive : .muted,
                             icon: "creditcard.and.123"
                         )
                     }
 
-                    if let highlightedDebt {
-                        highlightedDebtCard(highlightedDebt)
+                    if let highlightedCard = debtMetrics.highlightedCard {
+                        highlightedDebtCard(highlightedCard)
                     }
 
-                    utilizationCard
+                    if let highlightedLoan = debtMetrics.highlightedLoan {
+                        highlightedDebtCard(highlightedLoan)
+                    }
+
+                    if debtMetrics.totalCardLimit > 0 {
+                        utilizationCard
+                    }
                 }
             }
         }
     }
     
+    @ViewBuilder
     private func highlightedDebtCard(_ debt: Debt) -> some View {
+        if debt.isLoan {
+            highlightedLoanCard(debt)
+        } else {
+            highlightedCardCard(debt)
+        }
+    }
+
+    private func highlightedCardCard(_ debt: Debt) -> some View {
         let utilization = debt.utilization
         let utilizationPercent = debt.utilizationPercentage
 
@@ -830,8 +862,8 @@ struct DashboardView: View {
 
                     Text(
                         settings.language == .spanish
-                        ? "Saldo pendiente: \(settings.secureCurrency(debt.remainingDebt))"
-                        : "Outstanding balance: \(settings.secureCurrency(debt.remainingDebt))"
+                        ? "Saldo pendiente: \(settings.secureCurrency(debt.remainingDebt, decimals: 2))"
+                        : "Outstanding balance: \(settings.secureCurrency(debt.remainingDebt, decimals: 2))"
                     )
                     .font(.subheadline)
                     .foregroundColor(.secondary)
@@ -840,7 +872,7 @@ struct DashboardView: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(settings.secureCurrency(debt.remainingDebt))
+                    Text(settings.secureCurrency(debt.remainingDebt, decimals: 2))
                         .font(.headline.bold())
                         .foregroundColor(.red)
                         .lineLimit(1)
@@ -858,8 +890,8 @@ struct DashboardView: View {
 
                 Text(
                     settings.language == .spanish
-                    ? "Límite: \(settings.secureCurrency(debt.totalLimit))"
-                    : "Limit: \(settings.secureCurrency(debt.totalLimit))"
+                    ? "Cupo: \(settings.secureCurrency(debt.totalLimit, decimals: 2)) · Disponible: \(settings.secureCurrency(debt.availableCredit, decimals: 2))"
+                    : "Limit: \(settings.secureCurrency(debt.totalLimit, decimals: 2)) · Available: \(settings.secureCurrency(debt.availableCredit, decimals: 2))"
                 )
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -874,34 +906,99 @@ struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
+    private func highlightedLoanCard(_ debt: Debt) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(BrandPalette.secondary.opacity(0.16))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "doc.text.fill")
+                        .foregroundColor(BrandPalette.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(settings.language == .spanish ? "Préstamo con mayor saldo" : "Highest balance loan")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Text(debt.cardName)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Text(
+                        settings.language == .spanish
+                        ? "Falta: \(settings.secureCurrency(debt.remainingDebt, decimals: 2))"
+                        : "Remaining: \(settings.secureCurrency(debt.remainingDebt, decimals: 2))"
+                    )
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text("\(debt.progressPercentage)%")
+                        .font(.headline.bold())
+                        .foregroundColor(BrandPalette.secondary)
+
+                    Text(settings.secureCurrency(debt.paidAmount, decimals: 2))
+                        .font(.caption.bold())
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            }
+
+            ProgressView(value: debt.progress)
+                .tint(BrandPalette.secondary)
+
+            Text(
+                settings.language == .spanish
+                ? "Pagado: \(settings.secureCurrency(debt.paidAmount, decimals: 2)) · Total: \(settings.secureCurrency(debt.totalLimit, decimals: 2))"
+                : "Paid: \(settings.secureCurrency(debt.paidAmount, decimals: 2)) · Total: \(settings.secureCurrency(debt.totalLimit, decimals: 2))"
+            )
+            .font(.caption)
+            .foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(BrandPalette.surfaceRaised)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(BrandPalette.stroke, lineWidth: 1)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
     private var utilizationCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(settings.language == .spanish ? "Uso total del crédito" : "Total credit utilization")
+                Text(settings.language == .spanish ? "Uso real de tarjetas" : "Real card utilization")
                     .font(.subheadline.bold())
 
                 Spacer()
 
-                Text("\(debtUtilizationPercentage)%")
+                Text("\(debtMetrics.creditUtilizationPercentage)%")
                     .font(.subheadline.bold())
                     .foregroundColor(
-                        debtUtilization >= 0.8
+                        debtMetrics.creditUtilization >= 0.8
                         ? .red
-                        : (debtUtilization >= 0.5 ? BrandPalette.secondary : BrandPalette.primary)
+                        : (debtMetrics.creditUtilization >= 0.5 ? BrandPalette.secondary : BrandPalette.primary)
                     )
             }
 
-            ProgressView(value: debtUtilization)
+            ProgressView(value: debtMetrics.creditUtilization)
                 .tint(
-                    debtUtilization >= 0.8
+                    debtMetrics.creditUtilization >= 0.8
                     ? .red
-                    : (debtUtilization >= 0.5 ? BrandPalette.secondary : BrandPalette.primary)
+                    : (debtMetrics.creditUtilization >= 0.5 ? BrandPalette.secondary : BrandPalette.primary)
                 )
 
             Text(
                 settings.language == .spanish
-                ? "Deuda actual \(settings.secureCurrency(totalDebt)) de un límite total de \(settings.secureCurrency(totalCreditLimit))."
-                : "Current debt \(settings.secureCurrency(totalDebt)) out of a total limit of \(settings.secureCurrency(totalCreditLimit))."
+                ? "Tarjetas: deuda actual \(settings.secureCurrency(debtMetrics.totalCardDebt, decimals: 2)) de un cupo total de \(settings.secureCurrency(debtMetrics.totalCardLimit, decimals: 2)). Disponible: \(settings.secureCurrency(debtMetrics.totalAvailableCredit, decimals: 2))."
+                : "Cards: current debt \(settings.secureCurrency(debtMetrics.totalCardDebt, decimals: 2)) out of a total limit of \(settings.secureCurrency(debtMetrics.totalCardLimit, decimals: 2)). Available: \(settings.secureCurrency(debtMetrics.totalAvailableCredit, decimals: 2))."
             )
             .font(.caption)
             .foregroundColor(.secondary)

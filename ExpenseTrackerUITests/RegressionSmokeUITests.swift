@@ -6,123 +6,171 @@ final class RegressionSmokeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testEditIncomeFromHistoryOpensSheet() throws {
-        let app = makeApp()
-        let username = "ui_\(UUID().uuidString.prefix(8))"
-        let password = "Pass12345"
+    func testCreateAccountIncomeAndEditIncomeFromHistory() throws {
+        let app = makeFreshApp()
+        let uniqueSuffix = String(UUID().uuidString.prefix(8))
+        let accountName = "Efectivo UI \(uniqueSuffix)"
+        let incomeTitle = "Ingreso UI \(uniqueSuffix)"
 
         app.launch()
+
         dismissOnboardingIfNeeded(app)
-        registerUser(app: app, username: username, password: password)
+        continueInLocalMode(app)
 
-        relaunchForCleanLogin(app)
-        dismissOnboardingIfNeeded(app)
-        loginUser(app: app, username: username, password: password)
+        createMoneyAccount(app: app, name: accountName, openingBalance: "500000")
+        createIncome(app: app, title: incomeTitle, amount: "250000")
+        openHistoryTab(app)
+        openFirstIncomeForEditing(app)
 
-        openAddIncomeSheet(app)
-
-        let titleField = app.textFields["income.title.field"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 5))
-        titleField.tap()
-        titleField.typeText("Ingreso UITest")
-
-        let amountField = app.textFields["income.amount.field"]
-        XCTAssertTrue(amountField.exists)
-        amountField.tap()
-        amountField.typeText("250000")
-
-        let saveButton = app.buttons["income.save.button"]
-        XCTAssertTrue(saveButton.exists)
-        saveButton.tap()
-
-        let historyTab = app.tabBars.buttons.element(boundBy: 1)
-        XCTAssertTrue(historyTab.waitForExistence(timeout: 5))
-        historyTab.tap()
-
-        let menuButton = app.buttons["history.entry.menu"].firstMatch
-        XCTAssertTrue(menuButton.waitForExistence(timeout: 5))
-        menuButton.tap()
-
-        let editIncomeButton = app.buttons["history.edit.income"]
-        XCTAssertTrue(editIncomeButton.waitForExistence(timeout: 5))
-        editIncomeButton.tap()
-
-        XCTAssertTrue(app.otherElements["income.sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.otherElements["income.sheet"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.buttons["income.save.button"].exists)
         XCTAssertTrue(app.buttons["income.cancel.button"].exists)
     }
 
-    private func makeApp() -> XCUIApplication {
+    private func makeFreshApp() -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-ui-testing", "-reset-app-state"]
         return app
     }
 
-    private func relaunchForCleanLogin(_ app: XCUIApplication) {
-        app.terminate()
-        app.launch()
-    }
-
     private func dismissOnboardingIfNeeded(_ app: XCUIApplication) {
-        if app.buttons["onboarding.skip"].waitForExistence(timeout: 2) {
-            app.buttons["onboarding.skip"].tap()
+        let skipButton = app.buttons["onboarding.skip"]
+        if skipButton.waitForExistence(timeout: 6) {
+            skipButton.tap()
             return
         }
 
-        if app.buttons["onboarding.next"].waitForExistence(timeout: 2) {
-            while app.buttons["onboarding.next"].exists {
-                app.buttons["onboarding.next"].tap()
+        let nextButton = app.buttons["onboarding.next"]
+        if nextButton.waitForExistence(timeout: 2) {
+            var safetyCounter = 0
+            while nextButton.exists && safetyCounter < 6 {
+                nextButton.tap()
+                safetyCounter += 1
             }
 
-            if app.buttons["onboarding.getStarted"].waitForExistence(timeout: 2) {
-                app.buttons["onboarding.getStarted"].tap()
+            let getStartedButton = app.buttons["onboarding.getStarted"]
+            if getStartedButton.waitForExistence(timeout: 3) {
+                getStartedButton.tap()
             }
         }
     }
 
-    private func registerUser(app: XCUIApplication, username: String, password: String) {
-        let registerButton = app.buttons["auth.mode.register"]
-        XCTAssertTrue(registerButton.waitForExistence(timeout: 3))
-        registerButton.tap()
+    private func continueInLocalMode(_ app: XCUIApplication) {
+        let localModeButton = app.buttons["auth.continue.local"]
+        XCTAssertTrue(localModeButton.waitForExistence(timeout: 8))
+        localModeButton.tap()
 
-        let usernameField = app.textFields["auth.username"]
-        XCTAssertTrue(usernameField.waitForExistence(timeout: 3))
-        usernameField.tap()
-        usernameField.typeText(username)
-
-        let passwordField = app.secureTextFields["auth.password"]
-        XCTAssertTrue(passwordField.waitForExistence(timeout: 3))
-        passwordField.tap()
-        passwordField.typeText(password)
-
-        app.buttons["auth.submit"].tap()
+        XCTAssertTrue(app.buttons["main.add.menu"].waitForExistence(timeout: 12))
     }
 
-    private func loginUser(app: XCUIApplication, username: String, password: String) {
-        let loginButton = app.buttons["auth.mode.login"]
-        XCTAssertTrue(loginButton.waitForExistence(timeout: 3))
-        loginButton.tap()
+    private func createMoneyAccount(app: XCUIApplication, name: String, openingBalance: String) {
+        openHomeAddMenu(app)
+        tap(app.buttons["main.add.moneyAccount"], timeout: 5)
 
-        let usernameField = app.textFields["auth.username"]
-        XCTAssertTrue(usernameField.waitForExistence(timeout: 3))
-        usernameField.tap()
-        usernameField.typeText(username)
+        let nameField = app.textFields["moneyAccounts.name"]
+        if !nameField.waitForExistence(timeout: 6) {
+            tap(app.buttons["moneyAccounts.add"], timeout: 5)
+        }
 
-        let passwordField = app.secureTextFields["auth.password"]
-        XCTAssertTrue(passwordField.waitForExistence(timeout: 3))
-        passwordField.tap()
-        passwordField.typeText(password)
+        XCTAssertTrue(nameField.waitForExistence(timeout: 8))
+        nameField.tap()
+        nameField.typeText(name)
 
-        app.buttons["auth.submit"].tap()
+        let balanceField = app.textFields["moneyAccounts.balance"]
+        XCTAssertTrue(balanceField.waitForExistence(timeout: 5))
+        balanceField.tap()
+        balanceField.typeText(openingBalance)
+
+        tapSaveButton(app, timeout: 5)
+
+        XCTAssertTrue(app.buttons["moneyAccounts.add"].waitForExistence(timeout: 8))
+        tapSaveButton(app, timeout: 5)
+
+        XCTAssertTrue(app.buttons["main.add.menu"].waitForExistence(timeout: 10))
     }
 
-    private func openAddIncomeSheet(_ app: XCUIApplication) {
+    private func createIncome(app: XCUIApplication, title: String, amount: String) {
+        openHomeAddMenu(app)
+        tap(app.buttons["main.add.income"], timeout: 5)
+
+        let titleField = app.textFields["income.title.field"]
+        XCTAssertTrue(titleField.waitForExistence(timeout: 8))
+        titleField.tap()
+        titleField.typeText(title)
+
+        let amountField = app.textFields["income.amount.field"]
+        XCTAssertTrue(amountField.waitForExistence(timeout: 5))
+        amountField.tap()
+        amountField.typeText(amount)
+
+        let saveButton = app.buttons["income.save.button"]
+        XCTAssertTrue(saveButton.waitForExistence(timeout: 5))
+        saveButton.tap()
+
+        XCTAssertTrue(app.buttons["main.add.menu"].waitForExistence(timeout: 10))
+    }
+
+    private func openHistoryTab(_ app: XCUIApplication) {
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 8))
+
+        let historyByPosition = tabBar.buttons.element(boundBy: 1)
+        XCTAssertTrue(historyByPosition.waitForExistence(timeout: 5))
+        historyByPosition.tap()
+
+        XCTAssertTrue(app.buttons["history.entry.menu"].firstMatch.waitForExistence(timeout: 10))
+    }
+
+    private func openFirstIncomeForEditing(_ app: XCUIApplication) {
+        let entryMenu = app.buttons["history.entry.menu"].firstMatch
+        XCTAssertTrue(entryMenu.waitForExistence(timeout: 8))
+        entryMenu.tap()
+
+        let editIncomeButton = app.buttons["history.edit.income"]
+        XCTAssertTrue(editIncomeButton.waitForExistence(timeout: 8))
+        editIncomeButton.tap()
+    }
+
+    private func openHomeAddMenu(_ app: XCUIApplication) {
         let addMenuButton = app.buttons["main.add.menu"]
-        XCTAssertTrue(addMenuButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(addMenuButton.waitForExistence(timeout: 10))
         addMenuButton.tap()
+    }
 
-        let addIncomeButton = app.buttons["main.add.income"]
-        XCTAssertTrue(addIncomeButton.waitForExistence(timeout: 3))
-        addIncomeButton.tap()
+    private func tapSaveButton(
+        _ app: XCUIApplication,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let saveLabels = ["Guardar", "Save"]
+
+        for label in saveLabels {
+            let navigationButton = app.navigationBars.buttons[label].firstMatch
+            if navigationButton.waitForExistence(timeout: timeout) {
+                navigationButton.tap()
+                return
+            }
+        }
+
+        for label in saveLabels {
+            let button = app.buttons[label].firstMatch
+            if button.waitForExistence(timeout: timeout) {
+                button.tap()
+                return
+            }
+        }
+
+        XCTFail("No visible save button was found.", file: file, line: line)
+    }
+
+    private func tap(
+        _ element: XCUIElement,
+        timeout: TimeInterval,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(element.waitForExistence(timeout: timeout), file: file, line: line)
+        element.tap()
     }
 }

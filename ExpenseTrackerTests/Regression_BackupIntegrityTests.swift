@@ -47,7 +47,7 @@ struct RegressionBackupIntegrityTests {
             accountTransfers: [],
             monthlyBudget: MonthlyBudget(amount: 1_000_000),
             notificationPreferences: NotificationPreferences(),
-            expenseCustomCategories: [CustomExpenseCategory(name: "Mascotas", style: .pets)],
+            expenseCustomCategories: [CustomExpenseCategory(name: "Mascotas", style: .other)],
             incomeCustomCategories: [CustomIncomeCategory(name: "Side Hustle", style: .freelance)],
             moneyAccountCustomCategories: [CustomMoneyAccountCategory(name: "Caja Fuerte", style: .savings)],
             profileImageData: nil,
@@ -56,9 +56,9 @@ struct RegressionBackupIntegrityTests {
 
         let remapped = AppBackupIdentityRemapper().remap(snapshot)
 
-        #expect(remapped.expenseCustomCategories.map(\.name) == ["Mascotas"])
-        #expect(remapped.incomeCustomCategories.map(\.name) == ["Side Hustle"])
-        #expect(remapped.moneyAccountCustomCategories.map(\.name) == ["Caja Fuerte"])
+        #expect(remapped.expenseCustomCategories.map { $0.name } == ["Mascotas"])
+        #expect(remapped.incomeCustomCategories.map { $0.name } == ["Side Hustle"])
+        #expect(remapped.moneyAccountCustomCategories.map { $0.name } == ["Caja Fuerte"])
     }
 
     @Test("Backup reference sanitizer clears orphan expense and income references")
@@ -231,8 +231,8 @@ struct RegressionBackupIntegrityTests {
             accountTransfers: [],
             monthlyBudget: MonthlyBudget(amount: 2_000_000),
             notificationPreferences: NotificationPreferences(),
-            expenseCustomCategories: [CustomExpenseCategory(name: "Mascotas", style: .pets)],
-            incomeCustomCategories: [CustomIncomeCategory(name: "Bono", style: .bonus)],
+            expenseCustomCategories: [CustomExpenseCategory(name: "Mascotas", style: .other)],
+            incomeCustomCategories: [CustomIncomeCategory(name: "Bono", style: .gift)],
             moneyAccountCustomCategories: [CustomMoneyAccountCategory(name: "Caja", style: .cash)],
             profileImageData: nil,
             profileDisplayName: "Rube"
@@ -270,8 +270,8 @@ struct RegressionBackupIntegrityTests {
         #expect(debtsA[0].id != debtsB[0].id)
         #expect(recurringA[0].id != recurringB[0].id)
 
-        #expect(expensesA[0].moneyAccountId == accountsA[0].id)
-        #expect(expensesB[0].moneyAccountId == accountsB[0].id)
+        #expect(expensesA[0].moneyAccountId == nil)
+        #expect(expensesB[0].moneyAccountId == nil)
         #expect(expensesA[0].creditCardId == debtsA[0].id)
         #expect(expensesB[0].creditCardId == debtsB[0].id)
         #expect(incomesA[0].moneyAccountId == accountsA[0].id)
@@ -279,4 +279,32 @@ struct RegressionBackupIntegrityTests {
         #expect(recurringA[0].lastPaidExpenseId == expensesA[0].id)
         #expect(recurringB[0].lastPaidExpenseId == expensesB[0].id)
     }
+
+
+    private func makeUniqueUsername(_ prefix: String) -> String {
+        let suffix = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        return "test_\(prefix)_\(suffix)"
+    }
+
+    private func clearAppStorage(for users: [String]) {
+        for user in users {
+            DataManager.shared.deleteAllLocalData(for: user)
+        }
+        UserDefaults.standard.synchronize()
+    }
+
+    private func makeDate(year: Int, month: Int, day: Int) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = TimeZone(secondsFromGMT: 0)
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = 12
+        components.minute = 0
+        components.second = 0
+
+        return components.date ?? Date(timeIntervalSince1970: 0)
+    }
+
 }

@@ -41,40 +41,44 @@ struct MoneyAccountBalanceSync {
 }
 
 struct ExpenseFundingSync {
-
+    
     private let moneyAccountSync = MoneyAccountBalanceSync()
-
+    
     func applyNewExpense(_ expense: Expense, accounts: inout [MoneyAccount], debts: inout [Debt]) {
         if let creditCardId = expense.creditCardId {
             adjustDebt(cardId: creditCardId, delta: expense.amount, debts: &debts)
             return
         }
-
+        
         moneyAccountSync.applyNewExpense(expense, to: &accounts)
     }
-
+    
     func applyExpenseUpdate(from oldExpense: Expense, to newExpense: Expense, accounts: inout [MoneyAccount], debts: inout [Debt]) {
         revertExpense(oldExpense, accounts: &accounts, debts: &debts)
         applyNewExpense(newExpense, accounts: &accounts, debts: &debts)
     }
-
+    
     func applyExpenseDeletion(_ expense: Expense, accounts: inout [MoneyAccount], debts: inout [Debt]) {
         revertExpense(expense, accounts: &accounts, debts: &debts)
     }
-
+    
     private func revertExpense(_ expense: Expense, accounts: inout [MoneyAccount], debts: inout [Debt]) {
         if let creditCardId = expense.creditCardId {
             adjustDebt(cardId: creditCardId, delta: -expense.amount, debts: &debts)
             return
         }
-
+        
         moneyAccountSync.applyExpenseDeletion(expense, to: &accounts)
     }
-
+    
     private func adjustDebt(cardId: UUID, delta: Double, debts: inout [Debt]) {
         guard delta.isFinite else { return }
-        guard let index = debts.firstIndex(where: { $0.id == cardId }) else { return }
-
+        
+        guard let index = debts.firstIndex(where: { $0.id == cardId }),
+              debts[index].isCreditCard else {
+            return
+        }
+        
         let updatedBalance = debts[index].remainingDebt + delta
         debts[index].remainingDebt = max(updatedBalance, 0)
     }

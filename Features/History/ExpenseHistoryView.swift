@@ -41,6 +41,7 @@ struct ExpenseHistoryView: View {
     private let transferService = ExpensesTransferService()
     private let importedExpenseMergeService = ImportedExpenseMergeService()
     private let recurringPaymentExpenseSync = RecurringPaymentExpenseSync()
+    private let recurringGeneratedExpenseDeletionSync = RecurringGeneratedExpenseDeletionSync()
 
     private enum HistoryTab: String, CaseIterable, Identifiable {
         case overview
@@ -271,14 +272,14 @@ struct ExpenseHistoryView: View {
 
         if delta > 0 {
             return settings.language == .spanish
-            ? "Mejoraste tu balance en \(settings.formatCurrency(delta, decimals: 0)) frente al mes anterior"
-            : "Your balance improved by \(settings.formatCurrency(delta, decimals: 0)) versus previous month"
+            ? "Mejoraste tu balance en \(settings.formatCurrency(delta, decimals: 2)) frente al mes anterior"
+            : "Your balance improved by \(settings.formatCurrency(delta, decimals: 2)) versus previous month"
         }
 
         if delta < 0 {
             return settings.language == .spanish
-            ? "Tu balance cayó \(settings.formatCurrency(abs(delta), decimals: 0)) frente al mes anterior"
-            : "Your balance dropped by \(settings.formatCurrency(abs(delta), decimals: 0)) versus previous month"
+            ? "Tu balance cayó \(settings.formatCurrency(abs(delta), decimals: 2)) frente al mes anterior"
+            : "Your balance dropped by \(settings.formatCurrency(abs(delta), decimals: 2)) versus previous month"
         }
 
         return settings.language == .spanish
@@ -656,8 +657,8 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "plusminus",
                         text: settings.language == .spanish
-                        ? "Balance: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
-                        : "Net: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
+                        ? "Balance: \(settings.formatCurrency(selectedMonthNet, decimals: 2))"
+                        : "Net: \(settings.formatCurrency(selectedMonthNet, decimals: 2))"
                     )
                 }
 
@@ -677,8 +678,8 @@ struct ExpenseHistoryView: View {
                     infoPill(
                         icon: "plusminus",
                         text: settings.language == .spanish
-                        ? "Balance: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
-                        : "Net: \(settings.formatCurrency(selectedMonthNet, decimals: 0))"
+                        ? "Balance: \(settings.formatCurrency(selectedMonthNet, decimals: 2))"
+                        : "Net: \(settings.formatCurrency(selectedMonthNet, decimals: 2))"
                     )
                 }
             }
@@ -887,7 +888,7 @@ struct ExpenseHistoryView: View {
 
                 summaryCard(
                     title: settings.language == .spanish ? "Ingresos" : "Income",
-                    value: settings.formatCurrency(filteredLedgerIncomeTotal, decimals: 0),
+                    value: settings.formatCurrency(filteredLedgerIncomeTotal, decimals: 2),
                     accent: .green
                 )
             }
@@ -895,13 +896,13 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Gastos" : "Expenses",
-                    value: settings.formatCurrency(filteredLedgerExpenseTotal, decimals: 0),
+                    value: settings.formatCurrency(filteredLedgerExpenseTotal, decimals: 2),
                     accent: .red
                 )
 
                 summaryCard(
                     title: settings.language == .spanish ? "Balance" : "Net",
-                    value: settings.formatCurrency(filteredLedgerNet, decimals: 0),
+                    value: settings.formatCurrency(filteredLedgerNet, decimals: 2),
                     accent: filteredLedgerNet >= 0 ? .green : .orange
                 )
             }
@@ -913,13 +914,13 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Ingresos del mes" : "Month income",
-                    value: settings.formatCurrency(selectedMonthIncomeTotal, decimals: 0),
+                    value: settings.formatCurrency(selectedMonthIncomeTotal, decimals: 2),
                     accent: .green
                 )
 
                 summaryCard(
                     title: settings.language == .spanish ? "Gastos del mes" : "Month expenses",
-                    value: settings.formatCurrency(selectedMonthExpenseTotal, decimals: 0),
+                    value: settings.formatCurrency(selectedMonthExpenseTotal, decimals: 2),
                     accent: .red
                 )
             }
@@ -927,13 +928,13 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Balance del mes" : "Month net",
-                    value: settings.formatCurrency(selectedMonthNet, decimals: 0),
+                    value: settings.formatCurrency(selectedMonthNet, decimals: 2),
                     accent: selectedMonthNet >= 0 ? .green : .orange
                 )
 
                 summaryCard(
                     title: settings.language == .spanish ? "Balance del año" : "Year net",
-                    value: settings.formatCurrency(selectedYearNet, decimals: 0),
+                    value: settings.formatCurrency(selectedYearNet, decimals: 2),
                     accent: selectedYearNet >= 0 ? .blue : .orange
                 )
             }
@@ -941,7 +942,7 @@ struct ExpenseHistoryView: View {
             HStack(spacing: 12) {
                 summaryCard(
                     title: settings.language == .spanish ? "Promedio de gastos" : "Expense average",
-                    value: settings.formatCurrency(selectedMonthAverageExpense, decimals: 0),
+                    value: settings.formatCurrency(selectedMonthAverageExpense, decimals: 2),
                     accent: .pink
                 )
 
@@ -977,7 +978,7 @@ struct ExpenseHistoryView: View {
 
                 Spacer()
 
-                Text(settings.formatCurrency(previousMonthNet, decimals: 0))
+                Text(settings.formatCurrency(previousMonthNet, decimals: 2))
                     .font(.caption.bold())
                     .foregroundColor(.secondary)
             }
@@ -1250,7 +1251,8 @@ struct ExpenseHistoryView: View {
     }
 
     private func amountLabel(for entry: LedgerEntry) -> String {
-        let formatted = settings.formatCurrency(entry.amount, decimals: 0)
+        let formatted = settings.formatCurrency(entry.amount, decimals: 2)
+
         switch entry.kind {
         case .expense:
             return "−\(formatted)"
@@ -1429,22 +1431,60 @@ struct ExpenseHistoryView: View {
 
     private func deleteExpense(_ expense: Expense) {
         var debts = DataManager.shared.loadDebts(user: auth.currentUser)
-        expenseFundingSync.applyExpenseDeletion(expense, accounts: &moneyAccounts, debts: &debts)
+
+        expenseFundingSync.applyExpenseDeletion(
+            expense,
+            accounts: &moneyAccounts,
+            debts: &debts
+        )
+
+        var recurringPayments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
+
+        let recurringRepairResult = recurringGeneratedExpenseDeletionSync.repairAfterDeletingGeneratedExpense(
+            expenseId: expense.id,
+            recurringPayments: recurringPayments,
+            debts: debts
+        )
+
+        if recurringRepairResult.hasChanges {
+            recurringPayments = recurringRepairResult.recurringPayments
+            debts = recurringRepairResult.debts
+
+            for event in recurringRepairResult.events {
+                AuditLogStore.shared.logRecurringPaymentMarkedUnpaid(
+                    event.updatedPayment,
+                    user: auth.currentUser
+                )
+
+                if let previousDebt = event.previousDebt,
+                   let updatedDebt = event.updatedDebt {
+                    AuditLogStore.shared.logLinkedLoanRecurringPaymentReverted(
+                        from: previousDebt,
+                        to: updatedDebt,
+                        payment: event.previousPayment,
+                        user: auth.currentUser
+                    )
+                }
+            }
+
+            DataManager.shared.saveRecurringPayments(recurringPayments, user: auth.currentUser)
+        }
+
         DataManager.shared.saveDebts(debts, user: auth.currentUser)
 
         expenses.removeAll { $0.id == expense.id }
 
-        var recurringPayments = DataManager.shared.loadRecurringPayments(user: auth.currentUser)
-        let clearedRecurringPayments = recurringPaymentExpenseSync.clearPaidStatusLinked(
-            to: expense.id,
-            payments: &recurringPayments
+        AuditLogStore.shared.logExpenseDeleted(
+            expense,
+            user: auth.currentUser,
+            note: recurringRepairResult.hasChanges
+            ? (
+                settings.language == .spanish
+                ? "Se eliminó un gasto generado por pago fijo; el préstamo vinculado fue restaurado."
+                : "A generated recurring payment expense was deleted; the linked loan was restored."
+            )
+            : nil
         )
-
-        if clearedRecurringPayments > 0 {
-            DataManager.shared.saveRecurringPayments(recurringPayments, user: auth.currentUser)
-        }
-        
-        AuditLogStore.shared.logExpenseDeleted(expense, user: auth.currentUser)
 
         onPersistExpenses()
         onPersistMoneyAccounts()
